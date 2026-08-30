@@ -24,11 +24,15 @@ store, with a local token verifier, no network and no Auth0 tenant.
 
 ```bash
 make install
-make test        # 300+ tests, offline, no database, no credentials
+make test        # 340+ tests, offline, no database, no credentials
 make check       # exactly what CI runs: format, lint, types, tests, coverage gate
 ```
 
-A pass looks like `317 passed, 43 deselected`. The MongoDB-backed contract tests are *deselected* by
+Working in VS Code? Open `../telecom.code-workspace` and follow
+[`../docs/RUN-IN-VSCODE.md`](../docs/RUN-IN-VSCODE.md): the launch configurations,
+tasks, `requests.http` and the MongoDB playgrounds are all set up.
+
+A pass looks like `347 passed, 43 deselected`. The MongoDB-backed contract tests are *deselected* by
 default, not skipped — a deselection is visible in the run header, a skip is an
 invisible failure. To run them:
 

@@ -324,3 +324,38 @@ def test_the_importable_application_builds_from_the_environment(
     reloaded = importlib.reload(asgi)
 
     assert reloaded.app.title == "Telecom middleware"
+
+
+def test_hash_passcode_prints_a_usable_hash_and_needs_no_configuration(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from argon2 import PasswordHasher
+
+    # No database, no identity provider: asking for them would be theatre.
+    clear_env(monkeypatch)
+
+    assert main(["hash-passcode", "4821"]) == EXIT_OK
+
+    printed = capsys.readouterr().out.strip()
+    assert printed.startswith("$argon2id$")
+    assert PasswordHasher().verify(printed, "4821")
+
+
+def test_hash_passcode_never_prints_the_passcode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    clear_env(monkeypatch)
+
+    main(["hash-passcode", "4821"])
+
+    assert "4821" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad", ["123", "12345", "abcd", ""])
+def test_hash_passcode_refuses_anything_that_is_not_four_digits(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bad: str
+) -> None:
+    clear_env(monkeypatch)
+
+    assert main(["hash-passcode", bad]) != EXIT_OK
+    assert "four digits" in capsys.readouterr().err

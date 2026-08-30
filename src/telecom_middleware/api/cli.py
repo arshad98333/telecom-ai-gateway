@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("migrate", help="create collections, validators and indexes")
     commands.add_parser("verify-schema", help="report declared indexes the database is missing")
     commands.add_parser("check-store", help="check the configured database is usable")
+
+    hash_command = commands.add_parser(
+        "hash-passcode", help="hash a four-digit passcode for a hand-added customer"
+    )
+    hash_command.add_argument("passcode", help="four digits")
     seed_command = commands.add_parser("seed", help="load the demo dataset")
     seed_command.add_argument("--tenant", default="tenant-eu-1")
 
@@ -42,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.command == "hash-passcode":
+        # Deliberately before configuration is loaded: hashing a passcode needs no
+        # database and no identity provider, and asking for them would be theatre.
+        return hash_passcode_command(args.passcode)
 
     try:
         settings = load_settings()
@@ -114,6 +124,25 @@ async def verify_schema(settings: Settings) -> int:
         return EXIT_OK
     print(json.dumps({"missing_indexes": gaps}, indent=2), file=sys.stderr)  # noqa: T201
     return EXIT_SCHEMA_INCOMPLETE
+
+
+def hash_passcode_command(passcode: str) -> int:
+    """Print an Argon2id hash for a passcode, so a record can be added by hand.
+
+    A customer document written in a MongoDB playground or in Compass needs a real hash
+    in ``passcode.hash``; a placeholder there produces an account that exists and can
+    never authenticate, which is a confusing hour to spend. The passcode itself is
+    printed nowhere - only its hash.
+    """
+    from telecom_middleware.services.passcode import hash_passcode
+
+    try:
+        digest = hash_passcode(passcode)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)  # noqa: T201 - the process boundary
+        return EXIT_SCHEMA_INCOMPLETE
+    print(digest)  # noqa: T201
+    return EXIT_OK
 
 
 async def check_store(settings: Settings) -> int:

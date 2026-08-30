@@ -1,0 +1,279 @@
+### Telecom middleware — every endpoint, in the order a real case uses them.
+#
+# Needs the REST Client extension (humao.rest-client). Click "Send Request" above any
+# block, or put the cursor in one and press Ctrl+Alt+R.
+#
+# The token comes from DEV_TOKEN in .env. Fill it in with the VS Code task
+# "Mint a dev token", or from a terminal:
+#
+#   uv run --env-file .env python scripts/dev_token.py --write-env
+#
+# The API must be running: F5, "API: run (breakpoints work)".
+
+@baseUrl = http://127.0.0.1:9000
+@api = {{baseUrl}}/api/v1
+@token = {{$dotenv DEV_TOKEN}}
+@cx = CX-1234
+@otherCx = CX-5555
+
+### Liveness — answers even when the database is down
+GET {{baseUrl}}/healthz
+
+### Readiness — consults the database, so this is the one that tells you it is wired up
+GET {{baseUrl}}/readyz
+
+### ---------------------------------------------------------------------------
+### The customer's own view. Needs a customer token.
+### ---------------------------------------------------------------------------
+
+### The passcode check the voice agent does first. Demo passcode: 4821
+POST {{api}}/customers/{{cx}}/authenticate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "passcode": "4821"
+}
+
+### The same call with the wrong passcode — note it never says how many attempts remain
+POST {{api}}/customers/{{cx}}/authenticate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "passcode": "0000"
+}
+
+### Account details
+GET {{api}}/customers/{{cx}}
+Authorization: Bearer {{token}}
+
+### Active services
+GET {{api}}/customers/{{cx}}/services?limit=5
+Authorization: Bearer {{token}}
+
+### Orders, newest first
+GET {{api}}/customers/{{cx}}/orders?limit=5
+Authorization: Bearer {{token}}
+
+### Invoices. total_minor is pennies: 6300 is £63.00
+GET {{api}}/customers/{{cx}}/invoices?limit=5
+Authorization: Bearer {{token}}
+
+### Network status for the customer's own area — the area comes from their service
+### record, never from anything the caller sends
+GET {{api}}/customers/{{cx}}/network
+Authorization: Bearer {{token}}
+
+### Someone else's account. 403, with wording that gives nothing away
+GET {{api}}/customers/{{otherCx}}
+Authorization: Bearer {{token}}
+
+### No token at all. 401
+GET {{api}}/customers/{{cx}}
+
+### ---------------------------------------------------------------------------
+### Writes. Every one needs an idempotency key.
+### ---------------------------------------------------------------------------
+
+### Raise a ticket. 201 the first time
+POST {{api}}/customers/{{cx}}/tickets
+Authorization: Bearer {{token}}
+Idempotency-Key: idem-vscode-ticket-0001
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "category": "network",
+  "subject": "Broadband keeps dropping",
+  "description": "The connection drops every evening around eight.",
+  "priority": "normal"
+}
+
+### Send that exact request again. 200, the same ticket_id, deduplicated: true.
+### One ticket exists, not two.
+POST {{api}}/customers/{{cx}}/tickets
+Authorization: Bearer {{token}}
+Idempotency-Key: idem-vscode-ticket-0001
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "category": "network",
+  "subject": "Broadband keeps dropping",
+  "description": "The connection drops every evening around eight.",
+  "priority": "normal"
+}
+
+### The same key with different content. 409 — an error, not a silent replay of the
+### wrong result
+POST {{api}}/customers/{{cx}}/tickets
+Authorization: Bearer {{token}}
+Idempotency-Key: idem-vscode-ticket-0001
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "category": "billing",
+  "subject": "Something else entirely",
+  "description": "A different request under a key that is already used.",
+  "priority": "high"
+}
+
+### A write with no key at all. 422, naming the header it wanted
+POST {{api}}/customers/{{cx}}/tickets
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "category": "billing",
+  "subject": "No idempotency key",
+  "description": "Refused before anything is written.",
+  "priority": "low"
+}
+
+### The customer's tickets
+GET {{api}}/customers/{{cx}}/tickets?limit=5
+Authorization: Bearer {{token}}
+
+### Book a callback. The time must carry a timezone offset
+POST {{api}}/customers/{{cx}}/callbacks
+Authorization: Bearer {{token}}
+Idempotency-Key: idem-vscode-callback-0001
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "preferred_date": "2026-12-01T10:00:00+00:00",
+  "window": "morning",
+  "reason": "Discuss the outage credit"
+}
+
+### ---------------------------------------------------------------------------
+### The approval workflow. Nothing moves money.
+### ---------------------------------------------------------------------------
+
+### Ask for a refund. 202, state pending, money_moved false.
+### The evidence in the response is read from the invoice, not from the justification.
+POST {{api}}/customers/{{cx}}/refund-approvals
+Authorization: Bearer {{token}}
+Idempotency-Key: idem-vscode-refund-0001
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "invoice_id": "INV-2026-08",
+  "amount_minor": 450,
+  "currency": "GBP",
+  "reason": "service_outage",
+  "justification": "Broadband unavailable for three days in August."
+}
+
+### A refund larger than the invoice. 409
+POST {{api}}/customers/{{cx}}/refund-approvals
+Authorization: Bearer {{token}}
+Idempotency-Key: idem-vscode-refund-0002
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "invoice_id": "INV-2026-08",
+  "amount_minor": 999999,
+  "currency": "GBP",
+  "reason": "goodwill",
+  "justification": "More than the invoice was ever for."
+}
+
+### The supervisor's queue. 403 with a customer token — run the "Mint a dev token"
+### task again and choose supervisor_approver, then send this.
+GET {{api}}/approvals
+Authorization: Bearer {{token}}
+
+### Decide the one that came with the seed data. Needs the supervisor token.
+POST {{api}}/approvals/APR-seed-0001/decision
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "decision": "approved",
+  "note": "Outage confirmed against incident INC-5512."
+}
+
+### Send that again. 409 — a decided request cannot be decided twice
+POST {{api}}/approvals/APR-seed-0001/decision
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "decision": "rejected",
+  "note": "Second thoughts."
+}
+
+### ---------------------------------------------------------------------------
+### The other stakeholders
+### ---------------------------------------------------------------------------
+
+### Assign an account to an agent. Supervisor token.
+POST {{api}}/assignments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "agent_sub": "auth0|agent-7",
+  "cx_id": "{{otherCx}}"
+}
+
+### What that agent may act on
+GET {{api}}/assignments/auth0|agent-7
+Authorization: Bearer {{token}}
+
+### The audit trail, with the chain verified. Needs an admin_security token.
+### Note cx_ref: a stable reference, never the customer's identifier.
+GET {{api}}/audit?limit=20
+Authorization: Bearer {{token}}
+
+### The live feed. Leave it running in one tab and send a write from another.
+### Needs a token with case:read; a supervisor also sees approval events.
+GET {{api}}/stream
+Authorization: Bearer {{token}}
+Accept: text/event-stream
+
+### ---------------------------------------------------------------------------
+### Voice case state — what makes a dropped call resumable
+### ---------------------------------------------------------------------------
+
+### Record a turn
+PUT {{api}}/cases
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "case_id": "CASE-vscode-0001",
+  "status": "active",
+  "consent_recorded": true,
+  "step": {
+    "intent": "Ask about the August bill",
+    "tool": "get_invoice_summary",
+    "outcome": "answered"
+  }
+}
+
+### The line drops
+PUT {{api}}/cases
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "cx_id": "{{cx}}",
+  "case_id": "CASE-vscode-0001",
+  "status": "interrupted"
+}
+
+### They call back and re-authenticate. The case comes back with its steps intact,
+### rather than starting again from nothing.
+POST {{api}}/customers/{{cx}}/cases/resume
+Authorization: Bearer {{token}}

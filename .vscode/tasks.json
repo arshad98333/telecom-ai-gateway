@@ -1,0 +1,100 @@
+{
+  "version": "2.0.0",
+  // Every task runs through `uv run --env-file .env`, so the commands behave exactly as
+  // they do in a terminal and pick up your Atlas credentials from one place.
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "presentation": {
+    "reveal": "always",
+    "panel": "dedicated",
+    "clear": true
+  },
+  "tasks": [
+    {
+      "label": "Install dependencies",
+      "detail": "uv sync --frozen — creates .venv from the lock file",
+      "type": "shell",
+      "command": "uv sync --frozen",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Check the store",
+      "detail": "Is the database reachable, a replica set, and indexed?",
+      "type": "shell",
+      "command": "uv run --env-file .env telecom-middleware check-store",
+      "problemMatcher": []
+    },
+    {
+      "label": "Migrate",
+      "detail": "Create collections, validators and indexes",
+      "type": "shell",
+      "command": "uv run --env-file .env telecom-middleware migrate",
+      "problemMatcher": []
+    },
+    {
+      "label": "Seed the demo data",
+      "detail": "Two customers, invoices, a ticket and a pending approval",
+      "type": "shell",
+      "command": "uv run --env-file .env telecom-middleware seed",
+      "problemMatcher": []
+    },
+    {
+      "label": "Set up everything",
+      "detail": "Install, migrate, seed, then check — in order",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Install dependencies", "Migrate", "Seed the demo data", "Check the store"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Mint a dev token",
+      "detail": "Writes DEV_TOKEN into .env so requests.http can use it",
+      "type": "shell",
+      "command": "uv run --env-file .env python scripts/dev_token.py --role ${input:role} --write-env",
+      "problemMatcher": []
+    },
+    {
+      "label": "Hash a passcode",
+      "detail": "For a customer you are adding by hand in a playground",
+      "type": "shell",
+      "command": "uv run telecom-middleware hash-passcode ${input:passcode}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run the tests",
+      "type": "shell",
+      "command": "uv run pytest -q",
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Everything CI runs",
+      "detail": "Format check, lint, types, tests and the coverage gate",
+      "type": "shell",
+      "command": "uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest --cov -q",
+      "problemMatcher": []
+    },
+    {
+      "label": "Regenerate the mongosh seed",
+      "type": "shell",
+      "command": "uv run python scripts/export_seed.py",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "role",
+      "type": "pickString",
+      "description": "Which identity should the token carry?",
+      "options": ["customer", "support_agent", "supervisor_approver", "admin_security"],
+      "default": "customer"
+    },
+    {
+      "id": "passcode",
+      "type": "promptString",
+      "description": "Four digits",
+      "default": "4821"
+    }
+  ]
+}
