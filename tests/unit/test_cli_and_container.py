@@ -246,3 +246,18 @@ def test_the_principal_reports_what_it_may_do_for_the_audit_trail() -> None:
     assert "account:read" in view["scopes"]
     # The raw token is never part of it.
     assert "token" not in json.dumps(view).replace("token_id", "")
+
+
+async def test_check_store_reports_a_usable_in_memory_store(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from telecom_middleware.api.cli import check_store
+
+    settings = load_settings({"TELECOM_MW_LOCAL_VERIFIER_SECRET": SECRET})
+
+    assert await check_store(settings) == EXIT_OK
+    assert "nothing to inspect" in capsys.readouterr().out
+
+
+def test_check_store_is_a_command_the_parser_knows() -> None:
+    assert build_parser().parse_args(["check-store"]).command == "check-store"

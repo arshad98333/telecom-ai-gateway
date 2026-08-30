@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("check-config", help="validate configuration and exit")
     commands.add_parser("migrate", help="create collections, validators and indexes")
     commands.add_parser("verify-schema", help="report declared indexes the database is missing")
+    commands.add_parser("check-store", help="check the configured database is usable")
     seed_command = commands.add_parser("seed", help="load the demo dataset")
     seed_command.add_argument("--tenant", default="tenant-eu-1")
 
@@ -54,6 +55,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(migrate(settings))
     if args.command == "verify-schema":
         return asyncio.run(verify_schema(settings))
+    if args.command == "check-store":
+        return asyncio.run(check_store(settings))
     if args.command == "seed":
         return asyncio.run(seed(settings, args.tenant))
 
@@ -103,6 +106,24 @@ async def verify_schema(settings: Settings) -> int:
         print("every declared index is present")  # noqa: T201
         return EXIT_OK
     print(json.dumps({"missing_indexes": gaps}, indent=2), file=sys.stderr)  # noqa: T201
+    return EXIT_SCHEMA_INCOMPLETE
+
+
+async def check_store(settings: Settings) -> int:
+    """Report whether the configured database is usable, without printing the URI."""
+    from telecom_middleware.api.container import build_context
+    from telecom_middleware.services.diagnostics import inspect_store
+
+    context = build_context(settings, configure_logs=False)
+    try:
+        report = await inspect_store(context.store)
+    finally:
+        await context.store.close()
+
+    print(report.render())  # noqa: T201
+    if report.ok:
+        return EXIT_OK
+    print("\nthe database is not usable as configured; see the failures above", file=sys.stderr)  # noqa: T201
     return EXIT_SCHEMA_INCOMPLETE
 
 
