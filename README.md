@@ -75,7 +75,7 @@ missing or malformed value prints one message naming every problem and exits 78.
 | `HTTP_HOST` / `HTTP_PORT` | no | `127.0.0.1` / `8080` | HTTP transport bind address. |
 | `BACKEND` | no | `fake` | `fake` needs no network; `http` calls the middleware API. |
 | `BACKEND_BASE_URL` | when `BACKEND=http` | — | Middleware API base URL. |
-| `BACKEND_API_KEY` | when `BACKEND=http` | — | Our credential for the middleware API. Never logged. |
+| `BACKEND_API_KEY` | when `BACKEND=http` | — | This service's own credential, sent as `X-Service-Authorization`. It proves which service is calling; the customer's token, in `Authorization`, is what authorizes the data. Never logged. |
 | `BACKEND_CONNECT_TIMEOUT_S` | no | `2.0` | Connect timeout on every call. |
 | `BACKEND_READ_TIMEOUT_S` | no | `8.0` | Read timeout on every call. |
 | `BACKEND_MAX_CONNECTIONS` | no | `50` | Connection pool ceiling, per process. |
@@ -160,12 +160,14 @@ current one is worse than no README:
 
 - The container base image is referenced by tag, not by digest. It must be pinned
   before the first production release — see `docs/decisions/0004-container-base.md`.
-- The middleware API contract is written from the documented shape, not from recorded
-  real responses. When the real service is available, record one response per endpoint
-  under `tests/fixtures/` and correct the fake to match it.
-- The ownership checker for the support agent and supervisor roles has no
-  implementation here; the deny-all default ships instead. It needs the service-layer
-  endpoint that lists an agent's assignments.
+- The middleware now exists (`../telecom-middleware`) and the end-to-end suite in
+  `../e2e` runs this package against it with nothing stubbed between them. What is still
+  missing is a recorded response from the *real* telecom middleware in production;
+  the fake is built from the shape our own service returns.
+- The ownership checker for the support agent and supervisor roles still has no
+  implementation in this package; the deny-all default ships. The middleware enforces
+  assignments on its own side, so an agent is not over-permitted - but this package
+  refuses agent calls outright rather than delegating, which is stricter than intended.
 - The Redis store is exercised against a faithful in-process double, not a real Redis.
   The integration test against a containerised Redis is the next thing to add.
 - Load behaviour is reasoned about, not measured. The concurrency ceiling and the
