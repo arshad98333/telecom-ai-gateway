@@ -1,0 +1,84 @@
+# The whole system, locally, with one command.
+#
+#   docker compose up -d          bring it up
+#   docker compose exec middleware telecom-middleware seed
+#   curl -s localhost:9000/readyz | python -m json.tool
+#
+# MongoDB runs as a single-node replica set. That is not ceremony: transactions and
+# change streams both require one, and this system uses both - the transactional outbox
+# and the supervisor's live feed. A standalone mongod would appear to work until the
+# first write that needed to commit atomically.
+
+name: telecom-agentic-support
+
+services:
+  mongo:
+    image: mongo:7.0
+    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first start, then reports healthy once a primary
+      # has actually been elected. Waiting for the port alone is the classic mistake:
+      # the port opens well before the set can accept a transaction.
+      test: >
+        mongosh --quiet --eval "
+          try { rs.status().ok }
+          catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }
+        "
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  middleware:
+    build:
+      context: ./telecom-middleware
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "9000:9000"
+    environment:
+      TELECOM_MW_ENV: local
+      TELECOM_MW_HTTP_HOST: 0.0.0.0
+      TELECOM_MW_LOG_LEVEL: INFO
+      TELECOM_MW_STORE: mongodb
+      TELECOM_MW_MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=false
+      TELECOM_MW_MONGODB_DATABASE: telecom
+      # Local only. Production refuses this verifier; see the settings validator.
+      TELECOM_MW_IDENTITY_VERIFIER: local
+      TELECOM_MW_LOCAL_VERIFIER_SECRET: local-development-secret-not-for-production
+      TELECOM_MW_JWT_AUDIENCE: https://api.telecom.example/v1
+      TELECOM_MW_CHANGE_STREAM_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:9000/readyz',timeout=2).status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  tools:
+    build:
+      context: ./telecom-mcp
+    depends_on:
+      middleware:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      TELECOM_MCP_ENV: local
+      TELECOM_MCP_HTTP_HOST: 0.0.0.0
+      TELECOM_MCP_LOG_LEVEL: INFO
+      TELECOM_MCP_BACKEND: http
+      TELECOM_MCP_BACKEND_BASE_URL: http://middleware:9000/api/v1
+      TELECOM_MCP_BACKEND_API_KEY: local-service-credential
+      TELECOM_MCP_IDENTITY_VERIFIER: local
+      TELECOM_MCP_LOCAL_VERIFIER_SECRET: local-development-secret-not-for-production
+      TELECOM_MCP_JWT_AUDIENCE: telecom-mcp-tools
+      TELECOM_MCP_IDEMPOTENCY_STORE: memory
+
+volumes:
+  mongo-data:

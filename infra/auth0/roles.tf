@@ -8,8 +8,11 @@ locals {
   ]
 
   role_scopes = {
+    # case:write is here because the voice agent persists case state using the
+    # customer's own token, which is what makes resume-after-disconnect work. The
+    # service still allows it to write only its own case.
     customer = concat(local.customer_reads, [
-      "ticket:write", "callback:write", "refund:request", "case:read",
+      "ticket:write", "callback:write", "refund:request", "case:read", "case:write",
     ])
 
     support_agent = concat(local.customer_reads, [

@@ -40,9 +40,14 @@ CUSTOMER_PERMISSIONS = [
     "callback:write",
     "refund:request",
     "case:read",
+    "case:write",
 ]
-SUPERVISOR_PERMISSIONS = [*CUSTOMER_PERMISSIONS, "refund:approve", "case:write",
-                         "assignment:read", "assignment:write"]
+SUPERVISOR_PERMISSIONS = [
+    *CUSTOMER_PERMISSIONS,
+    "refund:approve",
+    "assignment:read",
+    "assignment:write",
+]
 
 
 def make_token(
