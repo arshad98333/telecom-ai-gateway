@@ -55,7 +55,11 @@ def _declares_scope(route: APIRoute) -> bool:
 def test_the_only_open_routes_are_the_ones_listed(harness: Harness) -> None:
     # If a future change makes something public, it has to be added to the list above,
     # where a reviewer will see it.
-    paths = {(route.path, method) for route in _routes(harness.app) for method in route.methods}
+    paths = {
+        (route.path, method)
+        for route in _routes(harness.app)
+        for method in (route.methods or set())
+    }
     open_paths = {entry for entry in PUBLIC_ROUTES if entry in paths}
 
     assert open_paths <= PUBLIC_ROUTES
