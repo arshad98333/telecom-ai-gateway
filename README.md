@@ -16,6 +16,12 @@ e2e/                    both services in one process, talking over real HTTP
 
 ## Start here
 
+**Setting it up for the first time: [`docs/SETUP-MONGODB-ATLAS.md`](docs/SETUP-MONGODB-ATLAS.md)** —
+cluster, database user, network access, `.env`, demo data, and running both services.
+About twenty minutes.
+
+Then:
+
 1. `docs/SYSTEM-DESIGN.md` — how the stakeholders, the data and the events fit together.
 2. `telecom-middleware/README.md` — run the API against an in-memory store in one command.
 3. `telecom-mcp/README.md` — run the tool server against it.
