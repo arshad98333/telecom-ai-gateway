@@ -1,0 +1,14 @@
+# The two services are their own repositories, with their own history.
+telecom-mcp/
+telecom-middleware/
+
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+uv.lock.bak
+.env
+.env.*
+!.env.example

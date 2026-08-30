@@ -1,0 +1,109 @@
+{
+  "part": 4,
+  "name": "Release and Completion",
+  "project_deployments": [
+    {
+      "project": "Project 1",
+      "environment_and_rollback_owner": "AI Engineering owns deployment and rollback through CI/CD."
+    },
+    {
+      "project": "Project 2",
+      "environment_and_rollback_owner": "AI Platform Engineering owns deployment and rollback for Azure Functions and Container Apps."
+    },
+    {
+      "project": "Project 3",
+      "environment_and_rollback_owner": "AI Platform Engineering owns deployment and rollback for Azure Functions, Container Apps, and workflow workers."
+    }
+  ],
+  "release_gates": [
+    {
+      "gate": "Code",
+      "status": "PASS",
+      "owner": "AI Engineering",
+      "date": "Release day"
+    },
+    {
+      "gate": "Integration",
+      "status": "PASS",
+      "owner": "AI Engineering",
+      "date": "Release day"
+    },
+    {
+      "gate": "Security",
+      "status": "PASS",
+      "owner": "Security Engineering",
+      "date": "Release day"
+    },
+    {
+      "gate": "Quality",
+      "status": "PASS",
+      "owner": "QA Lead",
+      "date": "Release day"
+    },
+    {
+      "gate": "End to end",
+      "status": "PASS",
+      "owner": "QA Lead",
+      "date": "Release day"
+    },
+    {
+      "gate": "Deploy",
+      "status": "PASS",
+      "owner": "Release Manager",
+      "date": "Release day"
+    },
+    {
+      "gate": "Operations",
+      "status": "PASS",
+      "owner": "SRE",
+      "date": "Release day"
+    }
+  ],
+  "done_means": [
+    {
+      "project": "Tools package",
+      "accepted_by": "AI Engineering Lead",
+      "date": "Release day"
+    },
+    {
+      "project": "Knowledge system",
+      "accepted_by": "AI Platform Lead",
+      "date": "Release day"
+    },
+    {
+      "project": "Support agent",
+      "accepted_by": "Customer Operations Lead",
+      "date": "Release day"
+    }
+  ],
+  "risks_carried_into_the_build": [
+    "Identity failure",
+    "Cross-account data exposure",
+    "Incorrect tool execution",
+    "Duplicate write actions",
+    "Unsupported AI answers",
+    "Stale knowledge",
+    "Approval bypass",
+    "Voice interruption failure",
+    "Worker restart inconsistency",
+    "Live-update data leakage",
+    "Vendor outage",
+    "Rollback failure"
+  ],
+  "sign_off": {
+    "owner": "AI Engineering Lead",
+    "security_review": "Security Engineering Lead",
+    "client_sponsor": "Head of Customer Operations",
+    "date": "Release approval date"
+  },
+  "reference_links": {
+    "instruction": "Use the five references already listed in the PDF.",
+    "references": [
+      "247.ai",
+      "Deepgram Voice Agent",
+      "Auth0 RBAC",
+      "Temporal Python SDK",
+      "Python Packaging Guide"
+    ]
+  }
+}

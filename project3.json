@@ -1,0 +1,417 @@
+{
+  "project": "Project 3",
+  "conversation_start": {
+    "chat": {
+      "message": "How can I help?"
+    },
+    "voice": {
+      "message": "How can I help?",
+      "recording_consent": "State recording consent before capture begins."
+    }
+  },
+  "core_design_decisions": [
+    {
+      "step": 1,
+      "name": "Voice identity",
+      "decision": "Verify caller against CX ID plus 4-digit account passcode.",
+      "failure_action": "End the session and require secure re-authentication when identity is not proven."
+    },
+    {
+      "step": 2,
+      "name": "Account ownership",
+      "decision": "Check authenticated CX ID against the account authorized-owner record in the CRM or identity service."
+    },
+    {
+      "step": 3,
+      "name": "Case storage",
+      "decision": "Name cases using TEL-{YYYYMMDD}-{CXID}-{UUID}.",
+      "retention": "Expire inactive cases after 30 days."
+    },
+    {
+      "step": 4,
+      "name": "Unclear intent",
+      "decision": "Ask one clarification question, then hand to HITL when the customer cannot provide a clear request."
+    },
+    {
+      "step": 5,
+      "name": "Clarification limit",
+      "decision": "Ask a maximum of 2 clarification questions, then stop and hand to HITL."
+    },
+    {
+      "step": 6,
+      "name": "Required data",
+      "requirements": {
+        "billing": [
+          "CX ID",
+          "invoice ID"
+        ],
+        "order": [
+          "CX ID",
+          "order ID"
+        ],
+        "service": [
+          "CX ID",
+          "service ID"
+        ],
+        "device": [
+          "CX ID",
+          "device ID"
+        ],
+        "refund": [
+          "CX ID",
+          "transaction ID"
+        ]
+      }
+    },
+    {
+      "step": 7,
+      "name": "Pre-action plan",
+      "required": true,
+      "structure": [
+        "intent",
+        "account",
+        "tools",
+        "checks",
+        "action",
+        "approval",
+        "rollback",
+        "expected result"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "Blocked in V1",
+      "blocked_actions": [
+        "Refund execution",
+        "Cancellation",
+        "Plan change",
+        "Contract change",
+        "Ownership change",
+        "Credential change",
+        "Payment-method change"
+      ]
+    },
+    {
+      "step": 9,
+      "name": "Manager approval",
+      "wait_time": "2 minutes",
+      "timeout_action": "Cancel the action safely and route the case to HITL."
+    },
+    {
+      "step": 10,
+      "name": "Repeat prevention",
+      "implementation": "Use Temporal.io Python SDK.",
+      "controls": [
+        "Workflow IDs",
+        "Activity retries",
+        "Idempotency keys",
+        "Durable activity state"
+      ],
+      "objective": "Prevent restarted workers from duplicating actions."
+    },
+    {
+      "step": 11,
+      "name": "Failed checks",
+      "decision": "Immediately stop.",
+      "recovery": "Execute the approved compensating action when available; otherwise freeze the case and send it to HITL."
+    },
+    {
+      "step": 12,
+      "name": "Reply speed",
+      "targets": {
+        "chat": "Within 3 seconds",
+        "voice": "Within 1.5 seconds for normal turns"
+      }
+    },
+    {
+      "step": 13,
+      "name": "Closure and HITL",
+      "close_only_when": [
+        "Intended outcome is verified",
+        "Evidence is stored",
+        "Audit trail is stored",
+        "Scoring passes"
+      ],
+      "send_to_hitl_on": [
+        "Uncertainty",
+        "Failed validation",
+        "Approval requirement",
+        "Timeout",
+        "Critical error"
+      ]
+    }
+  ],
+  "exception_handling": [
+    {
+      "step": 1,
+      "scenario": "Order or service not named",
+      "action": "Ask the customer to provide the exact order ID or service name before proceeding."
+    },
+    {
+      "step": 2,
+      "scenario": "More than one match",
+      "action": "Present the matching records and ask the customer to select one."
+    },
+    {
+      "step": 3,
+      "scenario": "Conflicting details",
+      "action": "Stop and ask the customer to confirm the correct information before acting."
+    },
+    {
+      "step": 4,
+      "scenario": "Refund or cancellation",
+      "action": "Confirm the exact target, then require supervisor approval before execution."
+    },
+    {
+      "step": 5,
+      "scenario": "Answer not usable",
+      "action": "Ask once more using the exact required format."
+    },
+    {
+      "step": 6,
+      "scenario": "No response",
+      "action": "Send one reminder, then expire the request after 60 seconds and hand over to HITL."
+    },
+    {
+      "step": 7,
+      "scenario": "Risky and unclear",
+      "action": "Take no action and immediately hand over to a human."
+    }
+  ],
+  "channel_architecture": {
+    "chat": {
+      "transport": "Browser chat connects to the support API.",
+      "updates": "Receive real-time case updates through WebSocket."
+    },
+    "voice": {
+      "speech_to_text": "Deepgram",
+      "text_to_speech": "Deepgram",
+      "response_target": "1.5 seconds"
+    },
+    "shared": {
+      "components": [
+        "Case ID",
+        "Authentication",
+        "Permissions",
+        "Workflow",
+        "Tools",
+        "Audit trail"
+      ],
+      "principle": "Chat and voice use the same business process and controls."
+    },
+    "live_updates": {
+      "events": [
+        "case_created",
+        "question_needed",
+        "answer_received",
+        "investigation_started",
+        "approval_needed",
+        "resolved",
+        "failed",
+        "cancelled"
+      ],
+      "security": "Authorize the case first, then filter every event by tenant ID, account ID, case ID, and user role."
+    },
+    "call_drop": {
+      "action": [
+        "Persist the case immediately",
+        "Mark the session interrupted",
+        "Require re-authentication before secure resume"
+      ]
+    }
+  },
+  "security_model": [
+    {
+      "step": 1,
+      "layer": "Login",
+      "controls": [
+        "Authenticated CX ID",
+        "Role",
+        "Account ownership",
+        "Least-privilege permissions"
+      ],
+      "timing": "At session creation"
+    },
+    {
+      "step": 2,
+      "layer": "API",
+      "controls": [
+        "Token validation",
+        "Role validation",
+        "Tenant validation",
+        "Account ownership validation",
+        "Requested action validation"
+      ],
+      "timing": "On every request before execution"
+    },
+    {
+      "step": 3,
+      "layer": "Workflow",
+      "control": "Pass only the minimum account data and permissions required for the current workflow step."
+    },
+    {
+      "step": 4,
+      "layer": "Agent",
+      "control": "Provide only data belonging to the authenticated customer case, with sensitive fields excluded by policy."
+    },
+    {
+      "step": 5,
+      "layer": "Tools",
+      "control": "Revalidate identity, tenant, account, scope, and action permission immediately before every tool call."
+    },
+    {
+      "step": 6,
+      "layer": "Database",
+      "control": "Enforce tenant ID plus account ID filtering on every query using server-side authorization."
+    },
+    {
+      "step": 7,
+      "layer": "Live updates",
+      "control": "Deliver events only when tenant ID, account ID, case ID, and role authorization match."
+    },
+    {
+      "step": 8,
+      "layer": "Logs",
+      "control": "Redact payment data, credentials, passcodes, tokens, and unnecessary personal data before storage."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "step": 1,
+      "name": "Request type",
+      "pass_condition": "Classifier selects the correct supported telecom intent with >=95% accuracy."
+    },
+    {
+      "step": 2,
+      "name": "Asking",
+      "pass_condition": "Every required clarification is asked before any customer-impacting action."
+    },
+    {
+      "step": 3,
+      "name": "No guessing",
+      "pass_condition": "Zero unauthorized assumptions in 100 test cases."
+    },
+    {
+      "step": 4,
+      "name": "Account separation",
+      "pass_condition": "0 cross-account access events across all isolation tests."
+    },
+    {
+      "step": 5,
+      "name": "Least data",
+      "pass_condition": "Each workflow receives only its approved minimum fields."
+    },
+    {
+      "step": 6,
+      "name": "Knowledge use",
+      "pass_condition": "100% of factual answers cite approved knowledge sources."
+    },
+    {
+      "step": 7,
+      "name": "Tool use",
+      "pass_condition": "Agent calls only the authorized tool with validated inputs."
+    },
+    {
+      "step": 8,
+      "name": "Approval",
+      "pass_condition": "100% of restricted actions require human approval before execution."
+    },
+    {
+      "step": 9,
+      "name": "Voice",
+      "pass_condition": "Speech recognition, interruption handling, latency, and drop recovery meet the defined production SLA."
+    },
+    {
+      "step": 10,
+      "name": "Live updates",
+      "pass_condition": "0 unauthorized events reach the browser during isolation tests."
+    },
+    {
+      "step": 11,
+      "name": "Recovery",
+      "pass_condition": "Retries, timeouts, cancellations, and worker restarts produce no duplicate customer actions."
+    }
+  ],
+  "operational_rules": [
+    {
+      "step": 1,
+      "name": "Voice identity",
+      "rule": "Verify CX ID plus 4-digit passcode before account access. Without proof, stop service and require secure re-authentication."
+    },
+    {
+      "step": 2,
+      "name": "Questions limit",
+      "rule": "Ask 2 clarification questions maximum, then hand over to HITL."
+    },
+    {
+      "step": 3,
+      "name": "Refund approval",
+      "rule": "Refunds require mandatory supervisor approval before execution."
+    },
+    {
+      "step": 4,
+      "name": "Pending approval",
+      "display": [
+        "Action",
+        "Amount",
+        "Reason",
+        "Status",
+        "Approver"
+      ],
+      "execution_status": "Blocked until approval."
+    },
+    {
+      "step": 5,
+      "name": "Dropped call",
+      "rule": "Persist workflow state and resume safely only after re-authentication with Temporal idempotency protection."
+    },
+    {
+      "step": 6,
+      "name": "Old case",
+      "rule": "Resume only when the case is open and within 30-day retention; otherwise create a new case."
+    },
+    {
+      "step": 7,
+      "name": "Voice interruption",
+      "rule": "Stop speaking immediately, capture the new utterance, then continue from the updated intent."
+    },
+    {
+      "step": 8,
+      "name": "No knowledge answer",
+      "response": "I don't have enough verified information to answer that",
+      "action": "Hand over when required."
+    },
+    {
+      "step": 9,
+      "name": "Hidden request during action",
+      "rule": "Require explicit confirmation before executing any new customer-impacting request."
+    }
+  ],
+  "interview_scenarios": [
+    {
+      "step": 1,
+      "question": "Show me the exact point where a refund stops and waits for a person.",
+      "answer": "Stop the workflow immediately after the agent validates the customer, account, refund target, amount, and policy eligibility, but before the refund tool executes. Create an approval request containing the case ID, customer account, refund amount, reason, evidence, and recommended action. The workflow then waits for a supervisor decision, and no refund API call is allowed before approval."
+    },
+    {
+      "step": 2,
+      "question": "The worker restarted after the refund was sent but before it was recorded. What does the customer get?",
+      "answer": "The customer should not receive a false success message. Use Temporal workflow state plus an idempotency key to determine whether the refund actually completed. If execution status is uncertain, enter a reconciliation state, verify the payment system, record the final outcome, then tell the customer either that the refund succeeded or that the case is being reviewed."
+    },
+    {
+      "step": 3,
+      "question": "A customer asks about an order that does not exist. Trace what happens, layer by layer.",
+      "answer": "First, authentication confirms the customer. Second, the API verifies account ownership and request permissions. Third, the workflow requests the order using the authenticated account scope. Fourth, the tool rechecks tenant, account, and order scope. Fifth, the database returns no matching order. Sixth, the agent does not invent an answer and asks the customer to verify the order details. If the customer still cannot provide a valid reference, the case is handed to HITL."
+    },
+    {
+      "step": 4,
+      "question": "The caller hangs up mid approval. What is the state of the case an hour later?",
+      "answer": "The case remains open and waiting for approval, with the current workflow state, approval request, audit trail, and pending action preserved. The voice session is marked interrupted, the refund remains unexecuted until approval is obtained, and the customer can resume only after secure re-authentication."
+    },
+    {
+      "step": 5,
+      "question": "Why is the same logic used for chat and voice instead of two agents?",
+      "answer": "Channel should only change how the customer communicates, not how business decisions are made. Both chat and voice use the same case ID, identity checks, permissions, workflow, tools, approval rules, audit trail, and recovery logic. This prevents inconsistent behavior and means there is only one business process to secure and test."
+    }
+  ]
+}

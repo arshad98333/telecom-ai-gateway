@@ -1,0 +1,443 @@
+{
+  "sop_name": "Telecom Agentic AI Voice Support System",
+  "version": "1.0",
+  "status": "Version 1 Production Scope",
+  "purpose": "Define the operating rules, security controls, approval rules, testing standards, failure handling, and release controls for a telecom voice-first agentic AI system integrated with chat.",
+  "project": {
+    "name": "Agentic AI Voice Support",
+    "owner": "Head of Customer Operations",
+    "technical_owner": "AI Engineering",
+    "security_owner": "IT Security",
+    "data_protection_owner": "Data Protection",
+    "release_owner": "Engineering Release Manager",
+    "first_live_journey": "Authenticated customer support request resolved end-to-end using approved tools with human approval for restricted actions"
+  },
+  "scope": {
+    "channel": {
+      "type": "Browser voice",
+      "voice_provider": "Deepgram",
+      "interface": "AI voice conversation integrated into customer chat"
+    },
+    "included": [
+      "Customer authentication",
+      "Customer account lookup",
+      "Active service lookup",
+      "Invoice lookup",
+      "Network/status lookup",
+      "Case/history lookup",
+      "Approved low-risk support actions",
+      "Human approval workflow",
+      "Case state persistence",
+      "Secure case resume after interruption"
+    ],
+    "excluded_from_version_1": [
+      "Refund execution without approval",
+      "Service cancellation without approval",
+      "Plan changes without approval",
+      "Contract changes",
+      "Account ownership changes",
+      "Complex disputes",
+      "Fully autonomous high-risk decisions"
+    ]
+  },
+  "business_problem": {
+    "problem": "Automate high-volume telecom customer support while preventing unauthorized access, incorrect account changes, and unsupported AI decisions.",
+    "success_definition": {
+      "autonomous_resolution_rate": ">=30%",
+      "first_contact_resolution": ">=95%",
+      "customer_satisfaction": ">=90%",
+      "critical_error_rate": "<=1%",
+      "authorization_accuracy": ">=99%"
+    },
+    "baseline": {
+      "autonomous_resolution_rate": "0% before launch"
+    }
+  },
+  "identity_and_access": {
+    "customer_account_link": {
+      "identifier": "CX ID",
+      "authentication_factor": "Unique 4-digit account passcode",
+      "storage": "Customer identity/account system",
+      "rule": "The agent must verify the CX ID and passcode before accessing customer-specific information or taking customer-specific action."
+    },
+    "roles": {
+      "customer": {
+        "maintained_by": "IAM/IT Security",
+        "access": [
+          "Own account data",
+          "Own service information",
+          "Own billing information",
+          "Own support case"
+        ]
+      },
+      "support_agent": {
+        "maintained_by": "IAM/IT Security",
+        "access": [
+          "Assigned customer data",
+          "Approved support tools",
+          "Customer case information"
+        ]
+      },
+      "supervisor_approver": {
+        "maintained_by": "IAM/IT Security",
+        "access": [
+          "Approval workflows",
+          "Broader case information",
+          "Restricted action approvals"
+        ]
+      },
+      "admin_security": {
+        "maintained_by": "IAM/IT Security",
+        "access": [
+          "Role configuration",
+          "Security configuration",
+          "Audit information"
+        ]
+      }
+    },
+    "access_policy": {
+      "principle": "Least privilege",
+      "tenant_isolation": true,
+      "database_direct_access_by_agent": false,
+      "rule": "The agent accesses customer information through approved tools rather than direct database queries."
+    }
+  },
+  "data_classification": {
+    "public": {
+      "examples": [
+        "Public product information",
+        "Public website information"
+      ],
+      "prompt_allowed": true
+    },
+    "customer_owned": {
+      "examples": [
+        "Account details",
+        "Billing information",
+        "Usage information",
+        "Service information",
+        "Support history"
+      ],
+      "prompt_allowed": "Only the minimum data required for the current task"
+    },
+    "internal": {
+      "examples": [
+        "Internal operating procedures",
+        "Internal policies",
+        "Operational telemetry"
+      ],
+      "prompt_allowed": "Only when required for the task"
+    },
+    "restricted": {
+      "examples": [
+        "Passwords",
+        "Passcodes",
+        "Payment secrets",
+        "Access tokens",
+        "Sensitive identity data"
+      ],
+      "prompt_allowed": false
+    }
+  },
+  "model_data_policy": {
+    "minimum_necessary_data": true,
+    "never_send_to_model": [
+      "4-digit passcode",
+      "Passwords",
+      "Payment secrets",
+      "Access tokens",
+      "Unnecessary sensitive personal data"
+    ],
+    "logging_redaction_required": [
+      "CX ID",
+      "Phone number",
+      "Email address",
+      "Payment information",
+      "Address",
+      "Authentication data",
+      "Access tokens",
+      "Full sensitive conversation content"
+    ],
+    "test_record_redaction_required": true
+  },
+  "retention": {
+    "public_data": {
+      "period": "Policy-defined",
+      "approval": "Data Protection"
+    },
+    "internal_data": {
+      "period": "Policy-defined",
+      "approval": "Data Protection"
+    },
+    "customer_data": {
+      "period": "Minimum business and legal requirement",
+      "approval": "Data Protection"
+    },
+    "restricted_security_data": {
+      "period": "Shortest practical period",
+      "approval": "Data Protection"
+    },
+    "call_audio": {
+      "period": "30 days",
+      "approval": "Data Protection Officer"
+    },
+    "chat_transcript": {
+      "period": "90 days",
+      "approval": "Data Protection Officer"
+    }
+  },
+  "voice_policy": {
+    "recording_consent_message": "This call may be recorded for service quality and security; continuing means you consent.",
+    "recording_starts": "Only after consent message is presented",
+    "caller_disconnect": {
+      "action": "Persist case state immediately",
+      "case_status": "Interrupted",
+      "resume": "Allow secure resume only after re-authentication"
+    }
+  },
+  "agent_behavior": {
+    "core_rule": "The agent must only perform actions within its approved permissions and must stop when authorization, information, safety, or execution confidence is insufficient.",
+    "ask_customer_before_action_when": [
+      "Required information is missing",
+      "The request is ambiguous",
+      "The action has financial impact",
+      "The action changes contractual terms",
+      "The action has security impact",
+      "Customer intent is not explicit"
+    ],
+    "allowed_assumptions": [
+      "Explicitly stated low-risk facts",
+      "Approved system defaults"
+    ],
+    "never_assume": [
+      "Customer identity",
+      "Customer consent",
+      "Customer intent",
+      "Customer authorization",
+      "Missing account information"
+    ],
+    "case_limits": {
+      "maximum_tool_steps": 10,
+      "maximum_transaction_value": "$5",
+      "maximum_model_tokens": 8000,
+      "maximum_case_duration": "5 minutes"
+    }
+  },
+  "actions": {
+    "read_only": [
+      {
+        "name": "Get account details",
+        "approval_required": false
+      },
+      {
+        "name": "Get active services",
+        "approval_required": false
+      },
+      {
+        "name": "Get invoice summary",
+        "approval_required": false
+      },
+      {
+        "name": "Check network/status",
+        "approval_required": false
+      },
+      {
+        "name": "Get case/history",
+        "approval_required": false
+      }
+    ],
+    "write_actions": [
+      {
+        "name": "Create support ticket",
+        "human_approval_required": false,
+        "condition": "Approved low-risk support action"
+      },
+      {
+        "name": "Schedule callback",
+        "human_approval_required": false,
+        "condition": "Approved low-risk support action"
+      },
+      {
+        "name": "Refund",
+        "human_approval_required": true
+      },
+      {
+        "name": "Cancel service",
+        "human_approval_required": true
+      },
+      {
+        "name": "Change service or plan",
+        "human_approval_required": true
+      },
+      {
+        "name": "Change contract terms",
+        "human_approval_required": true
+      },
+      {
+        "name": "Change account ownership",
+        "human_approval_required": true
+      },
+      {
+        "name": "Security or identity change",
+        "human_approval_required": true
+      }
+    ]
+  },
+  "human_approval": {
+    "required_for": [
+      "Refunds",
+      "Cancellations",
+      "Plan changes",
+      "Contract changes",
+      "Account ownership changes",
+      "Security changes",
+      "Identity changes"
+    ],
+    "approver_role": "Supervisor/Approver",
+    "policy_owner": "Customer Operations",
+    "approval_record": [
+      "Customer identifier",
+      "Requested action",
+      "Reason",
+      "Evidence used",
+      "Approver identity",
+      "Approval timestamp",
+      "Decision"
+    ]
+  },
+  "handover_policy": {
+    "mandatory_handover_when": [
+      "Authentication fails",
+      "Customer disputes a decision",
+      "Restricted action requires approval",
+      "Agent cannot resolve the request within case limits",
+      "Customer intent remains ambiguous",
+      "A serious system error occurs",
+      "A regulatory issue is identified",
+      "The customer submits a complex complaint"
+    ],
+    "handover_rule": "Stop autonomous execution and transfer the case with full safe context and audit information."
+  },
+  "quality_and_testing": {
+    "correct_result": [
+      "Tool execution matches requested action",
+      "Response is factually correct",
+      "Customer access is authorized",
+      "Correct customer account is used",
+      "Requested business outcome is achieved"
+    ],
+    "serious_failure": [
+      "Unauthorized customer access",
+      "Wrong customer action",
+      "Financial loss",
+      "Privacy breach",
+      "Materially incorrect advice",
+      "Safety-critical hallucination"
+    ],
+    "mandatory_human_review_before_closure": [
+      "Refund cases",
+      "Cancellation cases",
+      "Contract changes",
+      "Identity disputes",
+      "Account ownership disputes",
+      "Regulatory complaints",
+      "Unresolved customer intent"
+    ],
+    "release_blockers": {
+      "task_accuracy": "<95%",
+      "authorization_accuracy": "<99%",
+      "critical_error_rate": ">1%"
+    },
+    "override": {
+      "allowed": true,
+      "required_approvers": [
+        "CISO",
+        "Product Owner"
+      ],
+      "rule": "Both must jointly approve an exception."
+    }
+  },
+  "failure_handling": {
+    "failure_types": [
+      "API failure",
+      "Database failure",
+      "Tool failure",
+      "Model failure",
+      "Voice failure",
+      "Worker failure"
+    ],
+    "response_sequence": [
+      "Timeout",
+      "Retry with exponential backoff",
+      "Circuit breaker",
+      "Stop unsafe action",
+      "Preserve case state",
+      "Hand over to human"
+    ],
+    "safety_rule": "Never continue a customer-impacting action when the system cannot verify successful execution."
+  },
+  "release_management": {
+    "rollback_strategy": "Automated rollback to the last known-good release",
+    "release_owner": "Engineering Release Manager",
+    "rollback_trigger": [
+      "Release blocker breached",
+      "Critical security issue",
+      "Critical authorization failure",
+      "Material financial impact",
+      "Production instability"
+    ]
+  },
+  "on_call": {
+    "primary_role": "AI Platform On-Call Engineer",
+    "acknowledgement_sla": "15 minutes",
+    "mitigation_sla": "1 hour",
+    "escalation_owner": "Engineering Incident Manager"
+  },
+  "auditability": {
+    "record_every_customer_action": true,
+    "minimum_audit_fields": [
+      "Case ID",
+      "Authenticated CX ID reference",
+      "Tool invoked",
+      "Action requested",
+      "Action executed",
+      "Authorization result",
+      "Approval result",
+      "Timestamp",
+      "Execution result",
+      "Failure reason when applicable"
+    ],
+    "tamper_resistance": true,
+    "sensitive_data_redaction": true
+  },
+  "end_to_end_operating_flow": [
+    "Customer starts browser voice session",
+    "Consent is presented before recording",
+    "Customer provides CX ID",
+    "Customer authenticates using unique 4-digit account passcode",
+    "Agent identifies customer intent",
+    "Agent asks clarification when required",
+    "Agent checks authorization",
+    "Agent retrieves required information through approved tools",
+    "Agent determines whether action is read-only, low-risk write, or restricted",
+    "Agent requests human approval for restricted action",
+    "Approved action is executed",
+    "Execution result is verified",
+    "Case state and audit record are stored",
+    "Agent confirms outcome to customer",
+    "Human review occurs where required",
+    "Case is closed"
+  ],
+  "production_readiness": {
+    "security": "Must pass",
+    "authorization": "Must pass",
+    "functional_testing": "Must pass",
+    "voice_testing": "Must pass",
+    "end_to_end_testing": "Must pass",
+    "audit_logging": "Must pass",
+    "rollback_testing": "Must pass",
+    "monitoring": "Must pass",
+    "human_handover_testing": "Must pass",
+    "release_gate": "No production release when any release blocker is breached."
+  }
+}

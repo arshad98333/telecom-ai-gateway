@@ -1,0 +1,323 @@
+{
+  "project": "Project 1: MCP Telecom Tools Package",
+  "use_case": {
+    "application": "AI Voice Support Agent",
+    "owning_team": "Customer Operations with AI Engineering",
+    "week_one_tools": [
+      "get_customer_account",
+      "get_active_services",
+      "get_order_status",
+      "get_invoice_summary",
+      "get_network_status",
+      "create_support_ticket",
+      "schedule_callback"
+    ]
+  },
+  "tool_list": [
+    {
+      "tool": "get_customer_account",
+      "permission_needed": "Authenticated customer with account:read",
+      "approval_and_undo": "No approval, no data change"
+    },
+    {
+      "tool": "get_active_services",
+      "permission_needed": "Authenticated customer with service:read",
+      "approval_and_undo": "No approval, no data change"
+    },
+    {
+      "tool": "get_order_status",
+      "permission_needed": "Authenticated customer with order:read",
+      "approval_and_undo": "No approval, no data change"
+    },
+    {
+      "tool": "get_invoice_summary",
+      "permission_needed": "Authenticated customer with billing:read",
+      "approval_and_undo": "No approval, no data change"
+    },
+    {
+      "tool": "get_network_status",
+      "permission_needed": "Authenticated customer with network:read",
+      "approval_and_undo": "No approval, no data change"
+    },
+    {
+      "tool": "create_support_ticket",
+      "permission_needed": "Authenticated customer with ticket:write",
+      "approval_and_undo": "No approval, cancel before processing"
+    },
+    {
+      "tool": "schedule_callback",
+      "permission_needed": "Authenticated customer with callback:write",
+      "approval_and_undo": "No approval, cancel before scheduled time"
+    },
+    {
+      "tool": "request_refund_approval",
+      "permission_needed": "Authenticated customer with refund:request",
+      "approval_and_undo": "Supervisor approval required, request can be rejected"
+    },
+    {
+      "tool": "change_service_plan",
+      "permission_needed": "service:change with supervisor approval",
+      "approval_and_undo": "Blocked in Version 1"
+    },
+    {
+      "tool": "cancel_service",
+      "permission_needed": "service:cancel with supervisor approval",
+      "approval_and_undo": "Blocked in Version 1"
+    }
+  ],
+  "build_order": [
+    {
+      "step": 1,
+      "name": "Write the Tool Definitions",
+      "actions": [
+        "Define every tool's purpose",
+        "Define required inputs",
+        "Define outputs",
+        "Define permissions",
+        "Define timeout",
+        "Define retry rule",
+        "Define idempotency requirement",
+        "Define audit fields",
+        "Define failure response"
+      ],
+      "version_policy": "Freeze the definitions for Version 1."
+    },
+    {
+      "step": 2,
+      "name": "Build the Server",
+      "validation_before_execution": [
+        "Token",
+        "Tenant",
+        "CX ID",
+        "Account ownership",
+        "Role",
+        "Permission",
+        "Input schema",
+        "Tool scope"
+      ],
+      "reject_conditions": [
+        "Invalid identity",
+        "Cross-account requests",
+        "Restricted actions",
+        "Malformed inputs",
+        "Missing required fields"
+      ],
+      "execution_rule": "Reject invalid requests before calling the backend."
+    },
+    {
+      "step": 3,
+      "name": "Build the Client",
+      "actions": [
+        "Discover available tools",
+        "Validate inputs against tool schemas",
+        "Call only permitted tools",
+        "Handle server errors safely",
+        "Reject unknown tools",
+        "Reject incompatible tool versions"
+      ]
+    },
+    {
+      "step": 4,
+      "name": "Add Security Checks",
+      "layers": [
+        {
+          "layer": "API boundary",
+          "control": "Authentication"
+        },
+        {
+          "layer": "Tool execution",
+          "control": "Authorization before every tool execution"
+        },
+        {
+          "layer": "Tool layer",
+          "control": "Account ownership checks"
+        },
+        {
+          "layer": "Data layer",
+          "control": "Tenant filtering"
+        },
+        {
+          "layer": "Audit",
+          "control": "Log every accepted and rejected call"
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "name": "Make It Reliable",
+      "settings": {
+        "timeout": "10 seconds",
+        "retry_count": 2,
+        "retry_strategy": "Exponential backoff for safe transient failures",
+        "idempotency": "Require an idempotency key for every write operation",
+        "idempotency_retention": "24 hours"
+      },
+      "objective": "Prevent duplicate support tickets and other duplicate write operations."
+    }
+  ],
+  "testing": {
+    "step": 6,
+    "name": "Test It",
+    "test_categories": [
+      "Unit tests",
+      "Schema tests",
+      "Permission tests",
+      "Tenant isolation tests",
+      "Idempotency tests",
+      "Failure recovery tests",
+      "Integration tests",
+      "Clean installation tests"
+    ],
+    "quality_gate": {
+      "minimum_code_coverage": "95%",
+      "security_tests": "All security and authorization tests must pass before merge."
+    }
+  },
+  "publishing": {
+    "step": 7,
+    "name": "Publish It",
+    "process": [
+      "Build the package through CI",
+      "Run the complete test suite",
+      "Publish to TestPyPI",
+      "Install in a clean environment",
+      "Verify imports",
+      "Verify tool execution",
+      "Publish to PyPI"
+    ],
+    "credential_management": "CI/CD holds publishing credentials.",
+    "versioning": "Semantic Versioning using MAJOR.MINOR.PATCH."
+  },
+  "running_the_package": {
+    "step": 8,
+    "name": "Run It",
+    "version_policy": {
+      "versioning": "Semantic Versioning",
+      "major_version_support": "12 months",
+      "breaking_change_notice": "30 days before removal",
+      "compatibility": "Compatible tool schemas remain working during the support period."
+    }
+  },
+  "pass_or_fail_checks": [
+    {
+      "check": "Tool Listing",
+      "test_name": "test_tool_listing",
+      "target": "Only authorized tools are exposed"
+    },
+    {
+      "check": "Input Checking",
+      "test_name": "test_invalid_inputs_rejected",
+      "target": "100% invalid inputs rejected"
+    },
+    {
+      "check": "Permissions",
+      "test_name": "test_cross_account_access_denied",
+      "target": "0 unauthorized calls succeed"
+    },
+    {
+      "check": "Hiding Data",
+      "test_name": "test_sensitive_data_redaction",
+      "target": "100% sensitive fields redacted"
+    },
+    {
+      "check": "Repeat Calls",
+      "test_name": "test_idempotent_write",
+      "target": "0 duplicate tickets"
+    },
+    {
+      "check": "Failure Handling",
+      "test_name": "test_timeout_and_failure",
+      "target": "Safe error returned within 10 seconds"
+    },
+    {
+      "check": "Old Callers",
+      "test_name": "test_backward_compatibility",
+      "target": "100% supported Version 1 calls continue working"
+    },
+    {
+      "check": "Installation",
+      "test_name": "test_clean_install",
+      "target": "Clean environment installs successfully"
+    }
+  ],
+  "journeys_to_sign_off": [
+    {
+      "step": 1,
+      "journey": "Install the package fresh"
+    },
+    {
+      "step": 2,
+      "journey": "List the tools"
+    },
+    {
+      "step": 3,
+      "journey": "Call a permitted read tool"
+    },
+    {
+      "step": 4,
+      "journey": "Refuse a lookup on another account"
+    },
+    {
+      "step": 5,
+      "journey": "Create a support ticket"
+    },
+    {
+      "step": 6,
+      "journey": "Retry after a timeout"
+    },
+    {
+      "step": 7,
+      "journey": "Repeat a call and receive one ticket"
+    }
+  ],
+  "design_decisions": [
+    {
+      "question": "Should the package hold business rules or only tool access?",
+      "decision": "The package holds tool access and enforcement rules; business decisions remain in the consuming application.",
+      "answer_if_challenged": "The package should enforce consistent security without becoming the main telecom business logic system."
+    },
+    {
+      "question": "Who is trusted to confirm account ownership?",
+      "decision": "The authenticated identity service plus server-side account ownership check.",
+      "answer_if_challenged": "Account ownership must come from a trusted authentication and authorization layer, not from the caller's claim."
+    },
+    {
+      "question": "Should a restricted tool ship in Version 1?",
+      "decision": "Restricted tools remain blocked in Version 1.",
+      "answer_if_challenged": "A restricted operation should not have an executable path until its approval control exists."
+    },
+    {
+      "question": "How is a repeat call identified without a key?",
+      "decision": "Write operations require an idempotency key.",
+      "answer_if_challenged": "A write without an idempotency key cannot be safely retried."
+    },
+    {
+      "question": "What happens when a tool definition changes after release?",
+      "decision": "Use a new version for breaking changes and preserve the previous schema during its support period.",
+      "answer_if_challenged": "Existing callers should not silently break because the server contract changed."
+    },
+    {
+      "question": "Should the package access the database directly?",
+      "decision": "No, it should access approved telecom APIs.",
+      "answer_if_challenged": "Keeping database access behind the service layer centralizes validation, authorization, and auditing."
+    }
+  ],
+  "reviewer_questions": [
+    {
+      "scenario": "Unauthorised Call",
+      "answer": "The MCP server authorization layer stops the request before tool execution by validating the token, tenant, CX ID, account ownership, role, and permission."
+    },
+    {
+      "scenario": "Refund Called Twice",
+      "answer": "The first request executes with an idempotency key. The second request uses the same key, the server detects the existing operation, returns the original result, and does not execute the refund again."
+    },
+    {
+      "scenario": "Tool Input Changed",
+      "answer": "Existing callers continue using the previous supported version while the new version handles the changed input contract."
+    },
+    {
+      "scenario": "Server Is Down",
+      "answer": "The client returns: \"The requested service is temporarily unavailable; no action was completed.\" It records the failure and retries only when the operation is safely retryable."
+    }
+  ]
+}

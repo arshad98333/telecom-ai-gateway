@@ -1,0 +1,278 @@
+{
+  "project": "Project 2: Knowledge System with Search and Relationships",
+  "use_case": {
+    "first_questions": [
+      "Billing policy",
+      "Order status",
+      "Device troubleshooting",
+      "Service plan rules",
+      "Invoice questions"
+    ],
+    "owning_team": "Customer Support",
+    "manual_work_replaced": "Searching multiple documents and manually tracing customer, order, device, billing, and policy relationships."
+  },
+  "build_order": [
+    {
+      "step": 1,
+      "name": "Pick the Sources",
+      "version": "Version 1",
+      "sources": [
+        "Approved billing policies",
+        "FAQs",
+        "Troubleshooting guides",
+        "Device notes",
+        "Service plans",
+        "Procedures",
+        "Closed support cases"
+      ],
+      "owners": [
+        "Billing",
+        "Network Operations",
+        "Product",
+        "Customer Support"
+      ],
+      "review": {
+        "regular": "Monthly",
+        "immediate": "After a policy change"
+      }
+    },
+    {
+      "step": 2,
+      "name": "Set the Access Rules",
+      "access": "Support users see only documents permitted for their tenant, role, and account.",
+      "security_rule": "Restricted content is filtered before retrieval results reach the model."
+    },
+    {
+      "step": 3,
+      "name": "Load the Content",
+      "pipeline": [
+        "Extract text",
+        "Clean text",
+        "Split into 500-token chunks",
+        "Use 75-token overlap",
+        "Create embeddings with text-embedding-3-large",
+        "Store version metadata",
+        "Store access metadata",
+        "Reload when the source hash or version changes"
+      ]
+    },
+    {
+      "step": 4,
+      "name": "Build the Link Map",
+      "automatic_extraction": [
+        "Customer",
+        "Account",
+        "Service",
+        "Device",
+        "Order",
+        "Invoice",
+        "Case",
+        "Policy"
+      ],
+      "manual_curation": [
+        "Ambiguous entity matches",
+        "Policy conflicts"
+      ],
+      "conflict_resolution": "Latest approved policy wins."
+    },
+    {
+      "step": 5,
+      "name": "Search",
+      "default": "Hybrid semantic plus keyword search with metadata filtering.",
+      "relationship_search": "Use link traversal when the question requires a multi-record relationship such as customer → order → device → policy."
+    },
+    {
+      "step": 6,
+      "name": "Write the Answer",
+      "rules": [
+        "Answer only from retrieved evidence",
+        "Cite every factual claim with source name and version",
+        "Do not invent unsupported information"
+      ],
+      "insufficient_evidence_response": "I could not find sufficient approved evidence to answer this."
+    },
+    {
+      "step": 7,
+      "name": "Check the Answer",
+      "checks_every_answer": [
+        "Source support",
+        "Permissions",
+        "Document version",
+        "Link validity",
+        "Evidence coverage",
+        "Citation accuracy"
+      ],
+      "overnight_checks": [
+        "Index freshness",
+        "Failed ingestion",
+        "Broken links",
+        "Deleted documents",
+        "Permission leakage"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "Run It",
+      "alert": {
+        "condition": "Loading backlog above 1,000 documents",
+        "action": "Alert"
+      },
+      "performance_target": "≤3 seconds at p95 for normal queries."
+    }
+  ],
+  "link_map": {
+    "relationships": [
+      "Customer → Account → Plan",
+      "Customer → Order → Device",
+      "Customer → Invoice → Payment Status",
+      "Customer → Case → Resolution",
+      "Device → Warranty Policy",
+      "Plan → Billing Policy"
+    ],
+    "version_1_excludes": [
+      "Unsupported relationships",
+      "Unresolved entity matches"
+    ]
+  },
+  "pass_or_fail_checks": [
+    {
+      "check": "Loading",
+      "target": "100% approved documents indexed successfully",
+      "result": "Record after test"
+    },
+    {
+      "check": "Search quality",
+      "target": "≥90% top-5 relevant retrieval",
+      "result": "Record after test"
+    },
+    {
+      "check": "Coverage",
+      "target": "≥95% required evidence retrieved",
+      "result": "Record after test"
+    },
+    {
+      "check": "Faithfulness",
+      "target": "0 unsupported factual claims",
+      "result": "Record after test"
+    },
+    {
+      "check": "Sources",
+      "target": "100% cited sources support the claims",
+      "result": "Record after test"
+    },
+    {
+      "check": "Link accuracy",
+      "target": "≥99% valid relationship mappings",
+      "result": "Record after test"
+    },
+    {
+      "check": "Multi-step questions",
+      "target": "≥95% correct relationship paths",
+      "result": "Record after test"
+    },
+    {
+      "check": "Freshness",
+      "target": "Policy updates indexed within 15 minutes",
+      "result": "Record after test"
+    },
+    {
+      "check": "Permissions",
+      "target": "0 restricted documents returned",
+      "result": "Record after test"
+    },
+    {
+      "check": "Saying no",
+      "target": "100% refusal when approved evidence is insufficient",
+      "result": "Record after test"
+    }
+  ],
+  "journeys_to_sign_off": [
+    {
+      "step": 1,
+      "journey": "Upload document"
+    },
+    {
+      "step": 2,
+      "journey": "Ask billing policy question"
+    },
+    {
+      "step": 3,
+      "journey": "Open cited sources"
+    },
+    {
+      "step": 4,
+      "journey": "Ask cross-document question"
+    },
+    {
+      "step": 5,
+      "journey": "Ask relationship-following question"
+    },
+    {
+      "step": 6,
+      "journey": "Try restricted content"
+    },
+    {
+      "step": 7,
+      "journey": "Update document and ask again"
+    },
+    {
+      "step": 8,
+      "journey": "Delete document and confirm removal"
+    }
+  ],
+  "design_decisions": [
+    {
+      "question": "Which document wins when two policies disagree?",
+      "decision": "Latest approved policy version wins.",
+      "answer_if_challenged": "We never let the model choose between conflicting policies; version control determines authority."
+    },
+    {
+      "question": "How large should a text split be?",
+      "decision": "500 tokens with 75-token overlap.",
+      "answer_if_challenged": "This preserves enough context while keeping retrieval focused."
+    },
+    {
+      "question": "Are permissions checked before or after search?",
+      "decision": "Before retrieval using metadata filters.",
+      "answer_if_challenged": "Unauthorized content must never enter the retrieval result set."
+    },
+    {
+      "question": "When does a question need the link map?",
+      "decision": "When answering requires joining two or more records.",
+      "answer_if_challenged": "If the answer depends on a relationship, semantic similarity alone is insufficient."
+    },
+    {
+      "question": "What happens when a document has no clear owner or date?",
+      "decision": "Reject it from production indexing until ownership and effective date are confirmed.",
+      "answer_if_challenged": "Unowned policy content is not trusted evidence."
+    },
+    {
+      "question": "How is a deleted document removed?",
+      "decision": "Mark deleted, remove it from the vector index, relationship index, and cache, then verify zero retrievals.",
+      "answer_if_challenged": "Deletion is incomplete until every serving layer stops returning the document."
+    },
+    {
+      "question": "How much may the system say when evidence is partial?",
+      "decision": "State only supported facts and explicitly identify missing evidence.",
+      "answer_if_challenged": "Partial evidence cannot be turned into a confident answer."
+    }
+  ],
+  "reviewer_questions": [
+    {
+      "question": "The answer cited a source that does not support it; how would you catch that before a user does?",
+      "answer": "Run claim-to-source verification before response delivery and block the answer when any factual claim lacks supporting evidence."
+    },
+    {
+      "question": "A restricted document leaked into an answer; what check was missing?",
+      "answer": "The retrieval authorization filter was missing or bypassed, because permission must be enforced before documents reach the model."
+    },
+    {
+      "question": "A policy changed yesterday; prove the system is not answering from the old one.",
+      "answer": "Every indexed document carries version and effective-date metadata, retrieval filters prefer the latest approved version, and ingestion invalidates the old index and cache."
+    },
+    {
+      "question": "Why a link map at all when plain search already returns the document?",
+      "answer": "The link map is required when the answer depends on relationships across records, such as customer → order → device → warranty policy."
+    }
+  ]
+}
