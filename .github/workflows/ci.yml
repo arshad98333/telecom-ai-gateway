@@ -1,0 +1,184 @@
+name: ci
+
+# A check that reports but does not block is decoration. Every job here is required on
+# the protected branch, and the pipeline calls the same make targets a developer runs,
+# so nothing can pass locally and fail here for a reason nobody can reproduce.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+
+jobs:
+  check:
+    name: check (py${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The package supports both, so both are tested. Testing only one is how a
+        # supported version quietly stops working.
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the secret scan reads history, not just the diff
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install from the lock file
+        run: uv sync --frozen --all-extras --python ${{ matrix.python }}
+
+      - name: Fail if the lock file is out of date
+        run: uv lock --check
+
+      - name: Format, lint, types, tests and coverage
+        run: make check
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python }}
+          path: coverage.xml
+          if-no-files-found: warn
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Dependency vulnerability audit
+        run: uv run --with pip-audit pip-audit --strict
+
+      - name: Secret scan of the whole history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Static security analysis
+        run: uv run --with bandit bandit -r src -q
+
+  mongo:
+    name: against a real MongoDB
+    runs-on: ubuntu-24.04
+    services:
+      mongo:
+        image: mongo:7.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - run: uv sync --frozen --all-extras
+
+      - name: Start the replica set
+        # Transactions and change streams both need one, and this service uses both.
+        run: |
+          docker exec "$(docker ps -q --filter ancestor=mongo:7.0)" mongosh --quiet --eval \
+            "rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]})"
+          for attempt in $(seq 1 30); do
+            if docker exec "$(docker ps -q --filter ancestor=mongo:7.0)" mongosh --quiet \
+              --eval "db.hello().isWritablePrimary" | grep -q true; then
+              echo "primary elected after ${attempt}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "no primary was elected" >&2; exit 1
+
+      - name: The contract suite, against the real database
+        env:
+          TELECOM_MW_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
+        run: make cov-mongo
+
+      - name: Every declared index is present after migrate
+        env:
+          TELECOM_MW_STORE: mongodb
+          TELECOM_MW_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
+          TELECOM_MW_LOCAL_VERIFIER_SECRET: ci-secret-long-enough-for-hs256-here
+        run: |
+          uv run telecom-middleware migrate
+          uv run telecom-middleware verify-schema
+
+  load:
+    name: read latency
+    runs-on: ubuntu-24.04
+    services:
+      mongo:
+        image: mongo:7.0
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv sync --frozen --all-extras
+      - name: Start the replica set
+        run: |
+          docker exec "$(docker ps -q --filter ancestor=mongo:7.0)" mongosh --quiet --eval \
+            "rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]})"
+          sleep 5
+      - name: Measure the read path and fail if p95 regresses
+        env:
+          TELECOM_MW_STORE: mongodb
+          TELECOM_MW_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
+          TELECOM_MW_LOCAL_VERIFIER_SECRET: ci-secret-long-enough-for-hs256-here
+        run: uv run python scripts/measure_read_latency.py --requests 500 --p95-budget-ms 150
+
+  container:
+    name: container
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t telecom-middleware:ci .
+
+      - name: Start it and prove it answers readiness
+        run: ./scripts/docker_smoke.sh telecom-middleware:ci
+
+      - name: Record the base image digest
+        run: |
+          mkdir -p dist
+          docker image inspect python:3.12-slim-bookworm \
+            --format '{{index .RepoDigests 0}}' | tee dist/base-image-digest.txt
+
+      - name: Upload the digest with the build record
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-image-digest
+          path: dist/base-image-digest.txt
