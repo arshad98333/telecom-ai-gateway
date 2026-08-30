@@ -36,7 +36,7 @@ make install
 make test
 ```
 
-A pass looks like `230 passed`. The suite runs with the network disabled, with no
+A pass looks like `367 passed in 5s`. The suite runs with the network disabled, with no
 credentials and no `.env` file, and no test is skipped for missing configuration. It
 also passes in random order — `make test` randomises it every run.
 
