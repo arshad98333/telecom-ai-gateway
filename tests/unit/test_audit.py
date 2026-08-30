@@ -2,11 +2,13 @@
 
 import io
 import json
+from pathlib import Path
 
 from telecom_mcp.observability.redaction import Redactor, derive_pseudonym_key
 from telecom_mcp.security.audit import (
     GENESIS_HASH,
     AuditLog,
+    AuditSink,
     Decision,
     FileSink,
     MemorySink,
@@ -17,9 +19,9 @@ from telecom_mcp.security.audit import (
 from tests.fakes import FrozenClock, SequentialIds
 
 
-def _log(sink: object) -> AuditLog:
+def _log(sink: AuditSink) -> AuditLog:
     return AuditLog(
-        sink=sink,  # type: ignore[arg-type]
+        sink=sink,
         clock=FrozenClock(),
         redactor=Redactor(derive_pseudonym_key("svc", "test-secret")),
         id_generator=SequentialIds("audit"),
@@ -171,10 +173,8 @@ def test_the_stdout_sink_writes_one_json_line_per_record() -> None:
     assert json.loads(line)["tool"] == "t"
 
 
-def test_the_file_sink_appends_rather_than_truncating(tmp_path: object) -> None:
-    from pathlib import Path
-
-    path = Path(str(tmp_path)) / "nested" / "audit.log"
+def test_the_file_sink_appends_rather_than_truncating(tmp_path: Path) -> None:
+    path = tmp_path / "nested" / "audit.log"
     log = _log(FileSink(path))
 
     for _ in range(2):
