@@ -48,6 +48,10 @@ jobs:
         run: uv lock --check
 
       - name: Format, lint, types, tests and coverage
+        env:
+          # The parity test reads the Auth0 Terraform from the sibling repository. On a
+          # checkout that has only this one, point it at wherever infra lives.
+          TELECOM_INFRA_DIR: ${{ github.workspace }}/../infra/auth0
         run: make check
 
       - name: Upload coverage

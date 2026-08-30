@@ -130,6 +130,12 @@ both.
 non-customer identity has no assignment for it. The deny-all default is deliberate: a
 missing assignment must never widen access.
 
+**`test_auth0_parity` fails saying the Terraform was not found** — you cloned this
+repository on its own. That test keeps the Auth0 tenant and this service in agreement,
+so it fails rather than skipping. Point it at the infrastructure repository:
+`TELECOM_INFRA_DIR=/path/to/infra/auth0 make test`. In the normal three-repository
+layout it resolves on its own.
+
 **The live feed goes quiet** — a subscriber that falls behind is dropped on purpose.
 Reconnect with `Last-Event-ID` and the missed events replay from the outbox.
 
