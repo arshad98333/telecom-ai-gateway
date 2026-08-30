@@ -158,3 +158,12 @@ def test_an_unrelated_four_digit_number_survives(redactor: Redactor) -> None:
 def test_a_ticket_subject_is_not_mistaken_for_a_token_subject(redactor: Redactor) -> None:
     assert redactor.redact({"subject": "Bill looks wrong"})["subject"] == "Bill looks wrong"
     assert str(redactor.redact({"sub": "CX-1234"})["sub"]).startswith("ref_")
+
+
+def test_a_customer_gets_their_own_reference_back_in_their_own_response(
+    redactor: Redactor,
+) -> None:
+    # A tool result that disagrees with the request the agent just made is worse than
+    # useless to it, so pseudonymisation is a telemetry rule, not an output rule.
+    assert redactor.redact({"cx_id": "CX-1234"}, in_logs=False) == {"cx_id": "CX-1234"}
+    assert str(redactor.redact({"cx_id": "CX-1234"}, in_logs=True)["cx_id"]).startswith("ref_")

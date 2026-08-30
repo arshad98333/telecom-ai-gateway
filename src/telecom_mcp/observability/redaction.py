@@ -56,10 +56,13 @@ NEVER_DISCLOSED: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Fields replaced by a stable pseudonym, so correlation survives redaction.
-# "sub" is the token subject. "subject" is deliberately absent: a support ticket has a
-# subject too, and pseudonymising it would destroy the one field an agent needs to read.
-PSEUDONYMISED: Final[frozenset[str]] = frozenset({"cx_id", "customer_id", "sub"})
+#: Fields replaced by a stable pseudonym on the telemetry path, so correlation survives
+#: redaction. A customer asking about their own account still receives their own
+#: reference back, because a tool result that disagrees with the request the agent just
+#: made is worse than useless to it.
+#: "sub" is the token subject. "subject" is deliberately absent: a support ticket has a
+#: subject too, and pseudonymising it would destroy the one field an agent needs to read.
+PSEUDONYMISED_IN_LOGS: Final[frozenset[str]] = frozenset({"cx_id", "customer_id", "sub"})
 
 #: Fields removed from telemetry but legitimately present in a tool response the
 #: customer themselves asked for.
@@ -147,7 +150,7 @@ class Redactor:
         key = name.strip().lower()
         if key in NEVER_DISCLOSED:
             return REMOVED
-        if key in PSEUDONYMISED:
+        if in_logs and key in PSEUDONYMISED_IN_LOGS:
             return self.pseudonym(str(value)) if value is not None else None
         if in_logs and key in REDACTED_IN_LOGS:
             return REDACTED
