@@ -32,8 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("check-config", help="validate configuration and exit")
     commands.add_parser("migrate", help="create collections, validators and indexes")
     commands.add_parser("verify-schema", help="report declared indexes the database is missing")
-    seed = commands.add_parser("seed", help="load the demo dataset")
-    seed.add_argument("--tenant", default="tenant-eu-1")
+    seed_command = commands.add_parser("seed", help="load the demo dataset")
+    seed_command.add_argument("--tenant", default="tenant-eu-1")
 
     return parser
 
@@ -51,11 +51,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(settings.describe(), indent=2, default=str))  # noqa: T201
         return EXIT_OK
     if args.command == "migrate":
-        return asyncio.run(_migrate(settings))
+        return asyncio.run(migrate(settings))
     if args.command == "verify-schema":
-        return asyncio.run(_verify_schema(settings))
+        return asyncio.run(verify_schema(settings))
     if args.command == "seed":
-        return asyncio.run(_seed(settings, args.tenant))
+        return asyncio.run(seed(settings, args.tenant))
 
     _serve(settings, reload=args.reload)
     return EXIT_OK
@@ -77,7 +77,8 @@ def _serve(settings: Settings, *, reload: bool) -> None:
     )
 
 
-async def _migrate(settings: Settings) -> int:
+async def migrate(settings: Settings) -> int:
+    """Apply the schema. Public so it can be awaited directly rather than re-entered."""
     from telecom_middleware.api.container import build_context
 
     context = build_context(settings, configure_logs=False)
@@ -87,7 +88,7 @@ async def _migrate(settings: Settings) -> int:
     return EXIT_OK
 
 
-async def _verify_schema(settings: Settings) -> int:
+async def verify_schema(settings: Settings) -> int:
     from telecom_middleware.api.container import build_context
     from telecom_middleware.repositories.schema import missing_indexes
 
@@ -105,7 +106,7 @@ async def _verify_schema(settings: Settings) -> int:
     return EXIT_SCHEMA_INCOMPLETE
 
 
-async def _seed(settings: Settings, tenant: str) -> int:
+async def seed(settings: Settings, tenant: str) -> int:
     from telecom_middleware.api.container import build_context
     from telecom_middleware.services.seed import seed_demo_data
 

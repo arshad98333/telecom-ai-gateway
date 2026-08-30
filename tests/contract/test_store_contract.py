@@ -497,3 +497,45 @@ async def test_keys_are_namespaced_by_tenant_and_by_scope(store: Any) -> None:
 
 async def test_a_started_store_answers_its_readiness_probe(store: Any) -> None:
     await store.ping()
+
+
+async def test_a_started_store_can_be_closed_twice_without_complaint(store: Any) -> None:
+    # A shutdown path that raises on the second call turns a restart into an incident.
+    await store.close()
+    await store.close()
+
+
+async def test_a_transaction_commits_its_writes(store: Any) -> None:
+    async with store.transaction():
+        await store.tickets.insert(builders.ticket())
+        await store.audit.append(builders.audit())
+
+    assert await store.tickets.get(TENANT, "TCK-0001") is not None
+    assert (await store.audit.head(TENANT))[0] == 1
+
+
+async def test_an_upsert_of_a_case_replaces_its_predecessor(store: Any) -> None:
+    await store.cases.upsert(builders.case(tool_steps_used=1))
+    await store.cases.upsert(builders.case(tool_steps_used=2))
+
+    found = await store.cases.get(TENANT, "CASE-0001")
+
+    assert found is not None
+    assert found.tool_steps_used == 2
+
+
+async def test_a_callback_is_stored_and_read_back(store: Any) -> None:
+    await store.callbacks.insert(builders.callback())
+
+    found = await store.callbacks.get(TENANT, "CB-0001")
+
+    assert found is not None
+    assert found.window == "morning"
+    assert await store.callbacks.get(OTHER_TENANT, "CB-0001") is None
+
+
+async def test_network_status_is_shared_across_the_customers_in_an_area(store: Any) -> None:
+    await store.network.upsert(builders.network())
+
+    assert (await store.network.get_for_area(TENANT, "AREA-EDI-04")) is not None
+    assert (await store.network.get_for_area(TENANT, "AREA-NOWHERE")) is None

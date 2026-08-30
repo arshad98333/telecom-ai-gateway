@@ -8,7 +8,7 @@ UV_PROJECT_ENVIRONMENT ?= $(CURDIR)/.venv
 export UV_PROJECT_ENVIRONMENT
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev serve test test-fast test-int seed lint format typecheck check cov build clean audit docker-build docker-smoke
+.PHONY: help install dev serve test test-fast test-int seed lint format typecheck check cov cov-mongo build clean audit docker-build docker-smoke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-13s %s\n", $$1, $$2}'
@@ -48,6 +48,10 @@ cov: ## Run tests with the coverage gate
 
 audit: ## Fail on known-vulnerable dependencies
 	cd "$(CURDIR)" && $(UV) run --with pip-audit pip-audit --strict
+
+cov-mongo: ## Coverage including the MongoDB adapter; needs a real replica set
+	cd "$(CURDIR)" && $(UV) run pytest -m "mongo or not mongo" --cov \
+		--cov-config=coverage-mongo.toml --cov-report=term-missing
 
 check: lint typecheck cov ## Exactly what CI runs
 

@@ -83,6 +83,15 @@ filterwarnings = ["error", "ignore::DeprecationWarning:motor.*"]
 [tool.coverage.run]
 branch = true
 source = ["src/telecom_middleware"]
+# The MongoDB adapter is only exercised with a real replica set, so it is omitted from
+# the default gate rather than dragging it down to a number that means nothing. CI runs
+# `make cov-mongo`, which uses coverage-mongo.toml, includes these files, and holds the
+# same 95% bar against a live database.
+omit = [
+  "src/telecom_middleware/repositories/mongo.py",
+  "src/telecom_middleware/repositories/schema.py",
+  "src/telecom_middleware/repositories/session.py",
+]
 
 [tool.coverage.report]
 fail_under = 95

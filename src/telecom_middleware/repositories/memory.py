@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Generic, TypeVar
@@ -447,7 +447,7 @@ class MemoryStore:
         for queue in list(self._listeners):
             queue.put_nowait(event)
 
-    async def watch(self) -> AsyncIterator[DomainEvent]:
+    async def watch(self) -> AsyncGenerator[DomainEvent, None]:
         queue: asyncio.Queue[DomainEvent] = asyncio.Queue(maxsize=1000)
         self._listeners.append(queue)
         try:

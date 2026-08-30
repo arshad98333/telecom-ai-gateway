@@ -244,3 +244,19 @@ def test_a_supervisor_from_another_tenant_is_refused_before_the_amount_is_consid
 
     with pytest.raises(ForbiddenError, match="tenant mismatch"):
         require_approval_authority(other, approval(amount_minor=999_999))
+
+
+def test_a_role_with_no_configured_approval_limit_cannot_approve() -> None:
+    # A new role added to the enum must not inherit approval authority by accident.
+    from telecom_middleware.domain.errors import ForbiddenError
+    from telecom_middleware.security.permissions import Scope
+
+    unlimited = principal(
+        role=Role.ADMIN_SECURITY,
+        subject="auth0|sec-1",
+        cx_id=None,
+        scopes=frozenset({Scope.REFUND_APPROVE}),
+    )
+
+    with pytest.raises(ForbiddenError):
+        require_approval_authority(unlimited, approval())

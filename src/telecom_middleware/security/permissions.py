@@ -60,8 +60,17 @@ _CUSTOMER_READS: Final[frozenset[Scope]] = frozenset(
 #: too much - a mistake in the identity provider, or a stale assignment - still cannot
 #: exceed what the role is allowed to hold.
 ROLE_SCOPES: Final[dict[Role, frozenset[Scope]]] = {
+    # case:write is here because the voice agent persists case state using the
+    # customer's own token - that is what makes resume-after-disconnect possible. The
+    # only case it can write is its own, which the ownership check enforces.
     Role.CUSTOMER: _CUSTOMER_READS
-    | {Scope.TICKET_WRITE, Scope.CALLBACK_WRITE, Scope.REFUND_REQUEST, Scope.CASE_READ},
+    | {
+        Scope.TICKET_WRITE,
+        Scope.CALLBACK_WRITE,
+        Scope.REFUND_REQUEST,
+        Scope.CASE_READ,
+        Scope.CASE_WRITE,
+    },
     Role.SUPPORT_AGENT: _CUSTOMER_READS
     | {
         Scope.TICKET_WRITE,

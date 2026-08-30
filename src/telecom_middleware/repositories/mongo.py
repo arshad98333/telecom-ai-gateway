@@ -18,7 +18,7 @@ Driver errors are translated here. Nothing above this module imports pymongo.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -582,7 +582,7 @@ class MongoStore:
         """
         del event
 
-    async def watch(self) -> AsyncIterator[DomainEvent]:
+    async def watch(self) -> AsyncGenerator[DomainEvent, None]:
         """Tail the outbox with a resumable change stream.
 
         The resume token is stored after each event, so a restart continues from the

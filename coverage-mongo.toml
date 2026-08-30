@@ -1,0 +1,18 @@
+# Coverage for the run that has a real MongoDB replica set. Nothing is omitted: the
+# adapter, the schema and the session helpers are all exercised there.
+[tool.coverage.run]
+branch = true
+source = ["src/telecom_middleware"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@overload",
+  "^\\s*\\.\\.\\.$",
+  "^class .*\\(Protocol\\):",
+]
