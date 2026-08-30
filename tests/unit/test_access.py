@@ -231,3 +231,16 @@ def test_an_amount_exactly_at_the_limit_is_allowed() -> None:
 def test_a_request_from_another_tenant_cannot_be_decided() -> None:
     with pytest.raises(ForbiddenError, match="tenant mismatch"):
         require_approval_authority(supervisor(), approval(tenant_id="tenant-us-9"))
+
+
+def test_a_supervisor_from_another_tenant_is_refused_before_the_amount_is_considered() -> None:
+    # Ordering matters: a tenant mismatch must not be reported as an amount problem,
+    # because the amount is information about another tenant's request.
+    from telecom_middleware.domain.errors import ForbiddenError
+
+    other = principal(
+        role=Role.SUPERVISOR_APPROVER, subject="auth0|sup-2", cx_id=None, tenant="tenant-us-9"
+    )
+
+    with pytest.raises(ForbiddenError, match="tenant mismatch"):
+        require_approval_authority(other, approval(amount_minor=999_999))

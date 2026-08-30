@@ -181,7 +181,18 @@ async def get_services(
         principal.tenant_id, cx_id, limit=limit
     )
     return ServicesResponse(
-        services=[ServiceResponse.model_validate(s.model_dump()) for s in found],
+        services=[
+            ServiceResponse(
+                service_id=service.service_id,
+                kind=service.kind,
+                plan_name=service.plan_name,
+                status=service.status,
+                monthly_price_minor=service.monthly_price_minor,
+                currency=service.currency,
+                contract_end_date=service.contract_end_date,
+            )
+            for service in found
+        ],
         total_count=total,
         truncated=len(found) < total,
     )
@@ -202,7 +213,16 @@ async def get_orders(
     if order_id is not None and not found:
         raise NotFoundError("no such order")
     return OrdersResponse(
-        orders=[OrderResponse.model_validate(o.model_dump()) for o in found],
+        orders=[
+            OrderResponse(
+                order_id=order.order_id,
+                state=order.state,
+                placed_at=order.placed_at,
+                expected_by=order.expected_by,
+                summary=order.summary,
+            )
+            for order in found
+        ],
         total_count=total,
         truncated=len(found) < total,
     )
@@ -224,7 +244,18 @@ async def get_invoices(
         raise NotFoundError("no such invoice")
     currency = found[0].currency if found else Currency.GBP
     return InvoicesResponse(
-        invoices=[InvoiceResponse.model_validate(i.model_dump()) for i in found],
+        invoices=[
+            InvoiceResponse(
+                invoice_id=invoice.invoice_id,
+                state=invoice.state,
+                issued_on=invoice.issued_on,
+                due_on=invoice.due_on,
+                total_minor=invoice.total_minor,
+                outstanding_minor=invoice.outstanding_minor,
+                currency=invoice.currency,
+            )
+            for invoice in found
+        ],
         total_outstanding_minor=sum(i.outstanding_minor for i in found),
         currency=currency,
         total_count=total,

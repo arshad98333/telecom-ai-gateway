@@ -69,6 +69,12 @@ class Recorder:
     ) -> AuditRecord:
         """Append one record, chained to the tenant's previous one."""
         previous_seq, previous_hash = await self.store.audit.head(principal.tenant_id)
+        cx_ref = self.redactor.pseudonym(cx_id) if cx_id else None
+        # A resource identifier such as "customers/CX-1234" carries the customer
+        # reference in clear, which would put back exactly what cx_ref removes. The
+        # same substitution is applied so one record cannot undo the other.
+        if cx_id and cx_ref:
+            resource = resource.replace(cx_id, cx_ref)
         body: dict[str, Any] = {
             "tenant_id": principal.tenant_id,
             "seq": previous_seq + 1,
@@ -78,7 +84,7 @@ class Recorder:
             "case_id": case_id,
             "actor_sub": principal.subject,
             "actor_role": str(principal.role),
-            "cx_ref": self.redactor.pseudonym(cx_id) if cx_id else None,
+            "cx_ref": cx_ref,
             "action": action,
             "resource": resource,
             "decision": decision,
@@ -106,6 +112,9 @@ class Recorder:
     ) -> DomainEvent:
         """Write one event to the outbox and hand it to any live watcher."""
         sequence = await self.store.outbox.next_sequence(principal.tenant_id)
+        cx_ref = self.redactor.pseudonym(cx_id) if cx_id else None
+        if cx_id and cx_ref:
+            subject = subject.replace(cx_id, cx_ref)
         event = DomainEvent(
             event_id=self.ids.new_id(),
             type=event_type,
@@ -114,7 +123,7 @@ class Recorder:
             occurred_at=self.clock.now(),
             correlation_id=correlation_id,
             subject=subject,
-            cx_ref=self.redactor.pseudonym(cx_id) if cx_id else None,
+            cx_ref=cx_ref,
             case_id=case_id,
             actor_sub=principal.subject,
             # An event body is fanned out to every subscriber, so it is redacted with
