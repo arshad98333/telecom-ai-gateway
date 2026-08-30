@@ -20,6 +20,11 @@ e2e/                    both services in one process, talking over real HTTP
 cluster, database user, network access, `.env`, demo data, and running both services.
 About twenty minutes.
 
+**Working in VS Code: [`docs/RUN-IN-VSCODE.md`](docs/RUN-IN-VSCODE.md)** — open
+`telecom.code-workspace`, then everything is a task or an F5: the launch configurations,
+`requests.http` for every endpoint, and MongoDB playgrounds for browsing and adding
+records.
+
 Then:
 
 1. `docs/SYSTEM-DESIGN.md` — how the stakeholders, the data and the events fit together.

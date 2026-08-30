@@ -1,0 +1,101 @@
+{
+  // Open this file, not the folder: "File -> Open Workspace from File...".
+  //
+  // Each service is its own repository with its own virtual environment, and VS Code
+  // needs to know that or it will try to use one interpreter for both and get imports
+  // wrong in whichever one it did not pick.
+  "folders": [
+    { "name": "platform", "path": "." },
+    { "name": "middleware", "path": "telecom-middleware" },
+    { "name": "tools", "path": "telecom-mcp" },
+    { "name": "end-to-end", "path": "e2e" }
+  ],
+
+  "settings": {
+    "files.exclude": {
+      // Hidden in the "platform" folder only, because they appear as their own
+      // top-level folders above.
+      "telecom-middleware": true,
+      "telecom-mcp": true,
+      "e2e": true
+    },
+    "search.exclude": {
+      "**/.venv": true,
+      "**/uv.lock": true
+    },
+    "editor.rulers": [100],
+    "terminal.integrated.scrollback": 5000
+  },
+
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.debugpy",
+      "charliermarsh.ruff",
+      "ms-python.mypy-type-checker",
+      "mongodb.mongodb-vscode",
+      "humao.rest-client"
+    ]
+  },
+
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [],
+    "compounds": [
+      {
+        // Both services, in dependency order. The middleware must be up first, or the
+        // tools server's first call trips its circuit breaker.
+        "name": "Both services",
+        "configurations": [
+          { "folder": "middleware", "name": "API: run (breakpoints work)" },
+          { "folder": "tools", "name": "Tools: HTTP transport" }
+        ],
+        "stopAll": true,
+        "presentation": { "group": "1-run", "order": 1 }
+      },
+      {
+        // Nothing external at all: in-memory store, fake backend. Useful for reading
+        // the code with a debugger before any of it is configured.
+        "name": "Both services, no database",
+        "configurations": [
+          { "folder": "middleware", "name": "API: against the in-memory store (no database)" },
+          { "folder": "tools", "name": "Tools: against the built-in fake backend" }
+        ],
+        "stopAll": true,
+        "presentation": { "group": "1-run", "order": 2 }
+      }
+    ]
+  },
+
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        // The one command that takes an empty checkout to a running system, from
+        // whichever folder happens to be focused.
+        "label": "Set up everything",
+        "type": "shell",
+        "command": "uv sync --frozen && uv run --env-file .env telecom-middleware migrate && uv run --env-file .env telecom-middleware seed && uv run --env-file .env telecom-middleware check-store",
+        "options": { "cwd": "${workspaceFolder:middleware}" },
+        "problemMatcher": [],
+        "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+      },
+      {
+        "label": "Run every test in both services",
+        "type": "shell",
+        "command": "uv sync --frozen --quiet && uv run pytest -q && cd \"${workspaceFolder:tools}\" && uv run pytest -q",
+        "options": { "cwd": "${workspaceFolder:middleware}" },
+        "problemMatcher": [],
+        "group": { "kind": "test", "isDefault": true }
+      },
+      {
+        "label": "Run the end-to-end suite",
+        "detail": "Both services in one process, talking over real HTTP",
+        "type": "shell",
+        "command": "uv sync --frozen && uv run pytest -q",
+        "options": { "cwd": "${workspaceFolder:end-to-end}" },
+        "problemMatcher": []
+      }
+    ]
+  }
+}
