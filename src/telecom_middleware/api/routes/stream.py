@@ -11,7 +11,7 @@ a subscriber never receives something their permissions no longer cover.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -32,7 +32,7 @@ MAX_REPLAY = 500
 
 async def _event_stream(
     context: AppContext, principal: Principal, request: Request, last_event_id: int | None
-) -> AsyncIterator[str]:
+) -> AsyncGenerator[str, None]:
     heartbeat_s = context.settings.sse_heartbeat_s
 
     if last_event_id is not None:

@@ -32,7 +32,9 @@ logger = get_logger(__name__)
 SUBSCRIBER_QUEUE_SIZE = 100
 
 
-@dataclass(slots=True)
+# Identity-hashed on purpose: two subscribers with the same principal are still two
+# connections, and each must get its own copy of every event.
+@dataclass(slots=True, eq=False)
 class Subscriber:
     principal: Principal
     queue: asyncio.Queue[DomainEvent] = field(
