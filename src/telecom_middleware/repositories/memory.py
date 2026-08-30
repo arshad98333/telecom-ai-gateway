@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Generic, TypeVar
 
@@ -411,8 +412,21 @@ class MemoryStore:
         self.audit = MemoryAuditRepository(lock)
         self.outbox = MemoryOutboxRepository(lock)
         self.idempotency = MemoryIdempotencyRepository(lock)
+        self._write_lock = asyncio.Lock()
         self._listeners: list[asyncio.Queue[DomainEvent]] = []
         self._healthy = True
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """A single-writer block.
+
+        The in-memory store cannot roll back, so this guarantees only that no other
+        writer interleaves. That is weaker than MongoDB's transaction, and it is one of
+        the reasons this store is refused in production; the contract suite asserts the
+        ordering both stores do guarantee, not the durability only one of them has.
+        """
+        async with self._write_lock:
+            yield
 
     async def start(self) -> None:
         return None

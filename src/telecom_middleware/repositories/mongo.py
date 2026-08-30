@@ -19,6 +19,7 @@ Driver errors are translated here. Nothing above this module imports pymongo.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -59,6 +60,7 @@ from telecom_middleware.repositories.schema import (
     TICKETS,
     apply_schema,
 )
+from telecom_middleware.repositories.session import current_session, reset_session, set_session
 
 GENESIS_HASH = "0" * 64
 NO_ID = {"_id": 0}
@@ -68,6 +70,17 @@ WATCHER_NAME = "outbox-relay"
 def _document(model: Any) -> dict[str, Any]:
     """Serialise a model for storage, keeping datetimes as datetimes for BSON."""
     return dict(model.model_dump(mode="python"))
+
+
+def _session_kwargs() -> dict[str, Any]:
+    """Join the transaction in progress, when there is one.
+
+    Every write below passes this. A write that forgot it would commit outside the
+    transaction and could survive a rollback, which is exactly the split-brain the
+    outbox exists to prevent.
+    """
+    session = current_session()
+    return {"session": session} if session is not None else {}
 
 
 class MongoCustomerRepository:
@@ -85,6 +98,7 @@ class MongoCustomerRepository:
             {"tenant_id": customer.tenant_id, "cx_id": customer.cx_id},
             _document(customer),
             upsert=True,
+            **_session_kwargs(),
         )
 
     async def record_passcode_attempt(
@@ -137,6 +151,7 @@ class MongoCustomerRepository:
             update,
             projection=NO_ID,
             return_document=ReturnDocument.AFTER,
+            **_session_kwargs(),
         )
         return Customer.model_validate(found) if found else None
 
@@ -168,7 +183,7 @@ class _CustomerScopedRepository:
         key = {"tenant_id": model.tenant_id, "cx_id": model.cx_id}
         if self.reference_field:
             key[self.reference_field] = getattr(model, self.reference_field)
-        await self._collection.replace_one(key, _document(model), upsert=True)
+        await self._collection.replace_one(key, _document(model), upsert=True, **_session_kwargs())
 
 
 class MongoServiceRepository(_CustomerScopedRepository):
@@ -227,6 +242,7 @@ class MongoNetworkRepository:
             {"tenant_id": status.tenant_id, "area_ref": status.area_ref},
             _document(status),
             upsert=True,
+            **_session_kwargs(),
         )
 
 
@@ -247,6 +263,7 @@ class MongoAssignmentRepository:
             {"tenant_id": tenant_id, "agent_sub": agent_sub, "cx_id": cx_id},
             {"$set": {"assigned_by": by, "assigned_at": now}},
             upsert=True,
+            **_session_kwargs(),
         )
 
     async def revoke(self, tenant_id: str, agent_sub: str, cx_id: str) -> bool:
@@ -273,7 +290,7 @@ class MongoTicketRepository:
         return Ticket.model_validate(found) if found else None
 
     async def insert(self, ticket: Ticket) -> None:
-        await self._collection.insert_one(_document(ticket))
+        await self._collection.insert_one(_document(ticket), **_session_kwargs())
 
     async def list_for_customer(
         self, tenant_id: str, cx_id: str, *, limit: int
@@ -295,7 +312,7 @@ class MongoCallbackRepository:
         return Callback.model_validate(found) if found else None
 
     async def insert(self, callback: Callback) -> None:
-        await self._collection.insert_one(_document(callback))
+        await self._collection.insert_one(_document(callback), **_session_kwargs())
 
 
 class MongoApprovalRepository:
@@ -309,7 +326,7 @@ class MongoApprovalRepository:
         return ApprovalRequest.model_validate(found) if found else None
 
     async def insert(self, request: ApprovalRequest) -> None:
-        await self._collection.insert_one(_document(request))
+        await self._collection.insert_one(_document(request), **_session_kwargs())
 
     async def list_pending(
         self, tenant_id: str, *, limit: int
@@ -333,6 +350,7 @@ class MongoApprovalRepository:
             {"$set": {"state": state.value, "decision": decision}},
             projection=NO_ID,
             return_document=ReturnDocument.AFTER,
+            **_session_kwargs(),
         )
         return ApprovalRequest.model_validate(found) if found else None
 
@@ -349,7 +367,10 @@ class MongoCaseRepository:
 
     async def upsert(self, case: Case) -> None:
         await self._collection.replace_one(
-            {"tenant_id": case.tenant_id, "case_id": case.case_id}, _document(case), upsert=True
+            {"tenant_id": case.tenant_id, "case_id": case.case_id},
+            _document(case),
+            upsert=True,
+            **_session_kwargs(),
         )
 
     async def find_resumable(self, tenant_id: str, cx_id: str) -> Case | None:
@@ -368,7 +389,7 @@ class MongoAuditRepository:
     async def append(self, record: AuditRecord) -> None:
         # The unique (tenant_id, seq) index is what makes a gap or a duplicate in the
         # chain a write error rather than a discovery months later.
-        await self._collection.insert_one(_document(record))
+        await self._collection.insert_one(_document(record), **_session_kwargs())
 
     async def head(self, tenant_id: str) -> tuple[int, str]:
         found = await self._collection.find_one(
@@ -399,6 +420,7 @@ class MongoOutboxRepository:
             {"$inc": {"value": 1}},
             upsert=True,
             return_document=ReturnDocument.AFTER,
+            **_session_kwargs(),
         )
         return int(found["value"])
 
@@ -410,7 +432,8 @@ class MongoOutboxRepository:
                 "attempts": 0,
                 "created_at": datetime.now(UTC),
                 "published_at": None,
-            }
+            },
+            **_session_kwargs(),
         )
 
     async def fetch_pending(self, *, limit: int) -> list[DomainEvent]:
@@ -460,7 +483,8 @@ class MongoIdempotencyRepository:
                     "result": None,
                     "created_at": now,
                     "expires_at": now + timedelta(seconds=ttl_s),
-                }
+                },
+                **_session_kwargs(),
             )
         except DuplicateKeyError:
             pass
@@ -480,7 +504,9 @@ class MongoIdempotencyRepository:
 
     async def complete(self, tenant_id: str, scope: str, key: str, result: dict[str, Any]) -> None:
         await self._collection.update_one(
-            {"tenant_id": tenant_id, "scope": scope, "key": key}, {"$set": {"result": result}}
+            {"tenant_id": tenant_id, "scope": scope, "key": key},
+            {"$set": {"result": result}},
+            **_session_kwargs(),
         )
 
     async def release(self, tenant_id: str, scope: str, key: str) -> None:
@@ -528,6 +554,25 @@ class MongoStore:
             await self._database.command("ping")
         except PyMongoError as exc:
             raise StoreUnavailableError("database did not answer") from exc
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Run a block so its writes commit together, or not at all.
+
+        This is what makes the outbox trustworthy: an event cannot exist for a change
+        that rolled back, and a change cannot commit without its event. It needs a
+        replica set, which is also what makes change streams available - the two
+        requirements are the same requirement.
+        """
+        async with await self._client.start_session() as session:
+            token = set_session(session)
+            try:
+                async with session.start_transaction():
+                    yield
+            except PyMongoError as exc:
+                raise StoreUnavailableError("transaction failed") from exc
+            finally:
+                reset_session(token)
 
     async def publish(self, event: DomainEvent) -> None:
         """No-op: the change stream is the delivery mechanism, not this method.
