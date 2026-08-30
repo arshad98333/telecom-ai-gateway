@@ -95,3 +95,63 @@ def test_an_absent_or_empty_authorization_header_yields_no_token(header: str | N
         assert ContextTokenSource().current_token() == ""
     finally:
         reset_request_token(token)
+
+
+async def test_an_mcp_request_over_http_reaches_the_tool_and_uses_the_request_token() -> None:
+    from tests.factory import CUSTOMER, make_token
+
+    app, _ = build_app()
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "get_customer_account", "arguments": {"cx_id": CUSTOMER}},
+    }
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client,
+    ):
+        response = await client.post(
+            "/mcp/",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {make_token()}",
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+
+    assert response.status_code in (200, 202), response.text
+    assert "J. Okonkwo" in response.text or response.status_code == 202
+
+
+async def test_an_mcp_request_without_a_token_is_refused_rather_than_served() -> None:
+    from tests.factory import CUSTOMER
+
+    app, _ = build_app()
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "get_customer_account", "arguments": {"cx_id": CUSTOMER}},
+    }
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client,
+    ):
+        response = await client.post(
+            "/mcp/",
+            json=payload,
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+
+    assert "J. Okonkwo" not in response.text

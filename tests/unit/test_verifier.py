@@ -263,3 +263,66 @@ async def test_a_provider_outage_does_not_become_our_outage_while_keys_are_cache
     clock.advance(4000)  # past the window: fail closed
     with pytest.raises(TokenVerificationError, match="unavailable"):
         await verifier.verify(_rs256(rsa_key))
+
+
+async def test_a_token_with_no_subject_at_all_is_refused(local: LocalVerifier) -> None:
+    with pytest.raises(TokenVerificationError, match="no usable subject"):
+        await local.verify(_hs256(sub=None, **{CX_CLAIM: None}))
+
+
+async def test_a_token_with_no_expiry_is_refused() -> None:
+    # PyJWT would accept it without the require option; we do not.
+    verifier = LocalVerifier(SECRET, clock=FrozenClock(), audience=AUDIENCE)
+    claims = _claims()
+    del claims["exp"]
+
+    with pytest.raises(TokenVerificationError):
+        await verifier.verify(jwt.encode(claims, SECRET, algorithm="HS256"))
+
+
+async def test_a_token_with_a_malformed_header_is_refused(rsa_key: rsa.RSAPrivateKey) -> None:
+    verifier, _ = _verifier(rsa_key, _anchored_clock())
+
+    with pytest.raises(TokenVerificationError, match="header is malformed"):
+        await verifier.verify("not-a-jwt-at-all")
+
+
+async def test_a_token_with_no_key_identifier_is_refused(rsa_key: rsa.RSAPrivateKey) -> None:
+    verifier, _ = _verifier(rsa_key, _anchored_clock())
+    unkeyed = jwt.encode(_claims(), rsa_key, algorithm="RS256")
+
+    with pytest.raises(TokenVerificationError, match="no key identifier"):
+        await verifier.verify(unkeyed)
+
+
+async def test_a_rotated_key_is_picked_up_by_a_single_refresh(
+    rsa_key: rsa.RSAPrivateKey,
+) -> None:
+    clock = _anchored_clock()
+    published = {"kid": "key-1"}
+    calls = {"count": 0}
+
+    async def fetch() -> dict[str, Any]:
+        calls["count"] += 1
+        return _jwks_document(rsa_key, published["kid"])
+
+    verifier = JwksVerifier(
+        fetch_jwks=fetch, issuer=ISSUER, audience=AUDIENCE, clock=clock, cache_ttl_s=600.0
+    )
+    await verifier.verify(_rs256(rsa_key, kid="key-1"))
+
+    published["kid"] = "key-2"  # the provider rotated inside the cache window
+    identity = await verifier.verify(_rs256(rsa_key, kid="key-2"))
+
+    assert identity.subject == "CX-1234"
+    assert calls["count"] == 2, "an unknown key identifier must refresh once, not per call"
+
+
+async def test_a_signature_that_does_not_match_the_published_key_is_refused(
+    rsa_key: rsa.RSAPrivateKey,
+) -> None:
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    verifier, _ = _verifier(rsa_key, _anchored_clock())
+
+    with pytest.raises(TokenVerificationError, match="could not be verified"):
+        await verifier.verify(_rs256(other, kid="key-1"))

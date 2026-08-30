@@ -219,3 +219,176 @@ async def test_readiness_passes_when_the_middleware_answers() -> None:
 
     async with backend() as client:
         await client.ping()
+
+
+# --- the remaining endpoints, so every request path has a test ----------------------
+
+SERVICES = {
+    "services": [
+        {
+            "service_id": "SVC-001",
+            "kind": "mobile",
+            "plan_name": "Unlimited 5G",
+            "status": "active",
+            "monthly_price": "24.00",
+            "currency": "GBP",
+            "contract_end_date": None,
+        }
+    ],
+    "total_count": 1,
+    "truncated": False,
+}
+ORDERS = {
+    "orders": [
+        {
+            "order_id": "ORD-9001",
+            "state": "dispatched",
+            "placed_at": "2026-08-20T09:15:00Z",
+            "expected_by": "2026-09-02T00:00:00Z",
+            "summary": "Replacement router",
+        }
+    ],
+    "total_count": 1,
+    "truncated": False,
+}
+INVOICES = {
+    "invoices": [
+        {
+            "invoice_id": "INV-2026-08",
+            "state": "due",
+            "issued_on": "2026-08-01T00:00:00Z",
+            "due_on": "2026-09-01T00:00:00Z",
+            "total": "63.00",
+            "outstanding": "63.00",
+            "currency": "GBP",
+        }
+    ],
+    "total_outstanding": "63.00",
+    "currency": "GBP",
+    "truncated": False,
+}
+NETWORK = {
+    "state": "operational",
+    "area_reference": "AREA-EDI-04",
+    "incident_id": None,
+    "started_at": None,
+    "estimated_resolution": None,
+    "affected_services": [],
+    "message": "No known issues in this area.",
+}
+
+
+@respx.mock
+async def test_services_orders_invoices_and_network_are_all_fetched_and_parsed() -> None:
+    from telecom_mcp.domain.schemas import (
+        GetActiveServicesInput,
+        GetInvoiceSummaryInput,
+        GetNetworkStatusInput,
+        GetOrderStatusInput,
+    )
+
+    respx.get(f"{BASE}/customers/CX-1234/services").mock(
+        return_value=httpx.Response(200, json=SERVICES)
+    )
+    respx.get(f"{BASE}/customers/CX-1234/orders").mock(
+        return_value=httpx.Response(200, json=ORDERS)
+    )
+    respx.get(f"{BASE}/customers/CX-1234/invoices").mock(
+        return_value=httpx.Response(200, json=INVOICES)
+    )
+    respx.get(f"{BASE}/customers/CX-1234/network").mock(
+        return_value=httpx.Response(200, json=NETWORK)
+    )
+
+    async with backend() as client:
+        services = await client.get_active_services(
+            TENANT, GetActiveServicesInput(cx_id="CX-1234", limit=5)
+        )
+        orders = await client.get_order_status(
+            TENANT, GetOrderStatusInput(cx_id="CX-1234", order_id="ORD-9001", limit=5)
+        )
+        invoices = await client.get_invoice_summary(
+            TENANT, GetInvoiceSummaryInput(cx_id="CX-1234", invoice_id="INV-2026-08", limit=5)
+        )
+        network = await client.get_network_status(
+            TENANT, GetNetworkStatusInput(cx_id="CX-1234", service_id="SVC-001")
+        )
+
+    assert services.services[0].plan_name == "Unlimited 5G"
+    assert orders.orders[0].order_id == "ORD-9001"
+    assert invoices.invoices[0].invoice_id == "INV-2026-08"
+    assert network.state == "operational"
+
+
+@respx.mock
+async def test_an_optional_filter_is_sent_as_a_query_parameter_only_when_present() -> None:
+    from telecom_mcp.domain.schemas import GetOrderStatusInput
+
+    route = respx.get(f"{BASE}/customers/CX-1234/orders").mock(
+        return_value=httpx.Response(200, json=ORDERS)
+    )
+
+    async with backend() as client:
+        await client.get_order_status(TENANT, GetOrderStatusInput(cx_id="CX-1234", limit=5))
+
+    assert "order_id" not in str(route.calls.last.request.url)
+
+
+@respx.mock
+async def test_a_callback_and_a_refund_request_are_posted_with_their_keys() -> None:
+    from telecom_mcp.domain.schemas import RequestRefundApprovalInput, ScheduleCallbackInput
+
+    callback_route = respx.post(f"{BASE}/customers/CX-1234/callbacks").mock(
+        return_value=httpx.Response(
+            201,
+            json={
+                "callback_id": "CB-1",
+                "scheduled_for": "2026-09-01T10:00:00Z",
+                "window": "morning",
+                "cancellable_until": "2026-09-01T09:00:00Z",
+                "deduplicated": False,
+            },
+        )
+    )
+    refund_route = respx.post(f"{BASE}/customers/CX-1234/refund-approvals").mock(
+        return_value=httpx.Response(
+            202,
+            json={
+                "approval_request_id": "APR-1",
+                "state": "pending_approval",
+                "submitted_at": "2026-08-30T12:00:00Z",
+                "approver_role": "supervisor_approver",
+                "money_moved": False,
+                "deduplicated": False,
+            },
+        )
+    )
+
+    async with backend() as client:
+        callback = await client.schedule_callback(
+            TENANT,
+            ScheduleCallbackInput(
+                cx_id="CX-1234",
+                preferred_date="2026-09-01T10:00:00Z",
+                window="morning",
+                reason="Discuss the bill",
+                idempotency_key="idem-0000-0004",
+            ),
+        )
+        refund = await client.request_refund_approval(
+            TENANT,
+            RequestRefundApprovalInput(
+                cx_id="CX-1234",
+                invoice_id="INV-2026-08",
+                amount="4.50",
+                currency="GBP",
+                reason="duplicate_charge",
+                justification="Charged twice.",
+                idempotency_key="idem-0000-0005",
+            ),
+        )
+
+    assert callback.callback_id == "CB-1"
+    assert refund.money_moved is False
+    assert callback_route.calls.last.request.headers[IDEMPOTENCY_HEADER] == "idem-0000-0004"
+    assert refund_route.calls.last.request.headers[IDEMPOTENCY_HEADER] == "idem-0000-0005"

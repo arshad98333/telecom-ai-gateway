@@ -103,4 +103,12 @@ source = ["src/telecom_mcp"]
 fail_under = 95
 show_missing = true
 skip_covered = true
-exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@overload",
+  # Protocol bodies are declarations, not code that can run.
+  "^\\s*\\.\\.\\.$",
+  "^class .*\\(Protocol\\):",
+]

@@ -162,3 +162,80 @@ async def test_the_clock_is_injected_so_timestamps_are_deterministic() -> None:
     )
 
     assert ticket.created_at == datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+
+
+async def test_asking_for_a_specific_missing_invoice_is_not_found() -> None:
+    with pytest.raises(NotFoundError):
+        await backend().get_invoice_summary(
+            TENANT, GetInvoiceSummaryInput(cx_id="CX-1234", invoice_id="INV-0000", limit=5)
+        )
+
+
+async def test_a_customer_with_no_invoices_has_a_zero_balance_and_a_default_currency() -> None:
+    from decimal import Decimal
+
+    from telecom_mcp.domain.schemas import Currency
+
+    invoices = await backend().get_invoice_summary(
+        TENANT, GetInvoiceSummaryInput(cx_id="CX-1234", invoice_id=None, limit=5)
+    )
+    empty = await backend().get_active_services(
+        TENANT, GetActiveServicesInput(cx_id="CX-5555", limit=5)
+    )
+
+    assert invoices.currency == Currency.GBP
+    assert empty.total_count == 0
+    assert invoices.total_outstanding >= Decimal("0")
+
+
+async def test_a_callback_and_a_refund_request_are_recorded() -> None:
+    from telecom_mcp.domain.schemas import RequestRefundApprovalInput, ScheduleCallbackInput
+
+    fake = backend()
+
+    callback = await fake.schedule_callback(
+        TENANT,
+        ScheduleCallbackInput(
+            cx_id="CX-1234",
+            preferred_date=datetime(2026, 9, 1, 10, 0, tzinfo=UTC),
+            window="morning",
+            reason="Discuss the bill",
+            idempotency_key="idem-0000-0010",
+        ),
+    )
+    refund = await fake.request_refund_approval(
+        TENANT,
+        RequestRefundApprovalInput(
+            cx_id="CX-1234",
+            invoice_id="INV-2026-08",
+            amount="4.50",
+            currency="GBP",
+            reason="duplicate_charge",
+            justification="Charged twice.",
+            idempotency_key="idem-0000-0011",
+        ),
+    )
+
+    assert callback.callback_id in fake.callbacks
+    assert refund.approval_request_id in fake.refund_requests
+    assert refund.money_moved is False
+
+
+async def test_the_network_status_for_an_area_with_an_incident_is_returned() -> None:
+    from telecom_mcp.domain.schemas import GetNetworkStatusInput
+
+    status = await backend().get_network_status(
+        TENANT, GetNetworkStatusInput(cx_id="CX-1234", service_id=None)
+    )
+
+    assert status.state == "degraded"
+    assert status.incident_id == "INC-5512"
+
+
+async def test_a_page_of_orders_is_returned_when_no_specific_order_is_asked_for() -> None:
+    orders = await backend().get_order_status(
+        TENANT, GetOrderStatusInput(cx_id="CX-1234", order_id=None, limit=1)
+    )
+
+    assert orders.total_count == 2
+    assert orders.truncated is True
