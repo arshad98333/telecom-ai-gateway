@@ -95,6 +95,10 @@ class ToolExecutor:
         self._semaphore = asyncio.Semaphore(max_concurrent_calls)
         self._tool_timeout_s = tool_timeout_s
 
+    @property
+    def authorizer(self) -> Authorizer:
+        return self._authorizer
+
     async def execute(self, request: ToolRequest) -> ToolResult:
         """Run one tool call. Never raises."""
         started = self._clock.monotonic()

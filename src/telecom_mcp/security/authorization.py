@@ -125,6 +125,11 @@ class Authorizer:
         #: makes a single-tenant deployment safe to run without trusting the issuer.
         self._expected_tenants = expected_tenants
 
+    @property
+    def verifier(self) -> TokenVerifier:
+        """Exposed so a transport can identify a caller without executing anything."""
+        return self._verifier
+
     async def authorize(self, request: ToolRequest) -> AuthorizedCall:
         """Return an authorized call, or raise ``AuthorizationDeniedError``."""
         spec = self._stage_tool_scope(request)
