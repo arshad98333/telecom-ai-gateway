@@ -63,20 +63,28 @@ CorrelationIdDep = Annotated[str, Depends(get_correlation_id)]
 
 
 async def current_principal(
-    context: AppContextDep, authorization: Annotated[str | None, Header()] = None
+    request: Request,
+    context: AppContextDep,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    """Verify the bearer token and return who is calling. Never trusts a claim alone."""
+    """Verify the bearer token and return who is calling. Never trusts a claim alone.
+
+    The principal is also attached to the request, so the error handler can audit a
+    refusal without every handler having to remember to do it.
+    """
     if not authorization or not authorization.startswith(BEARER_PREFIX):
         raise AuthenticationError("no bearer token presented")
     token = authorization[len(BEARER_PREFIX) :].strip()
     if not token:
         raise AuthenticationError("empty bearer token")
     try:
-        return await context.verifier.verify(token)
+        principal = await context.verifier.verify(token)
     except TokenVerificationError as exc:
         if "expired" in str(exc):
             raise TokenExpiredError(str(exc)) from exc
         raise TokenInvalidError(str(exc)) from exc
+    request.state.principal = principal
+    return principal
 
 
 PrincipalDep = Annotated[Principal, Depends(current_principal)]

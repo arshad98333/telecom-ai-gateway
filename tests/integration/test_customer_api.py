@@ -292,3 +292,25 @@ async def test_protective_headers_are_set_on_every_response(
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Cache-Control"] == "no-store"
+
+
+async def test_a_refusal_is_audited_as_well_as_an_acceptance(
+    client: httpx.AsyncClient, seeded: Harness
+) -> None:
+    # A refusal nobody recorded is exactly the one an investigation will need.
+    await client.get(f"{API}/customers/{OTHER_CUSTOMER}", headers=seeded.headers())
+
+    records = seeded.store.audit.records["tenant-eu-1"]
+    assert [r.decision for r in records] == ["rejected"]
+    assert records[0].failure_reason == "forbidden"
+    assert OTHER_CUSTOMER not in records[0].model_dump_json()
+
+
+async def test_an_unauthenticated_attempt_is_a_log_line_not_an_audit_record(
+    client: httpx.AsyncClient, seeded: Harness
+) -> None:
+    # There is no verified identity to attribute it to; inventing one would be worse
+    # than not recording it.
+    await client.get(f"{API}/customers/{CUSTOMER}")
+
+    assert seeded.store.audit.records["tenant-eu-1"] == []

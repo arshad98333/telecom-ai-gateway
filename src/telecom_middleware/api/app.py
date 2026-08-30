@@ -118,6 +118,7 @@ def _install_error_handlers(app: FastAPI) -> None:
             path=request.url.path,
             reason=str(exc),
         )
+        await _audit_refusal(request, exc, correlation_id)
         return JSONResponse(
             status_code=exc.status,
             content=exc.problem(correlation_id).to_dict(),
@@ -157,6 +158,37 @@ def _install_error_handlers(app: FastAPI) -> None:
             },
             headers={CORRELATION_HEADER: correlation_id},
         )
+
+
+async def _audit_refusal(request: Request, exc: MiddlewareError, correlation_id: str) -> None:
+    """Record a refusal, so the audit trail holds rejected calls as well as accepted ones.
+
+    Done here rather than in each handler: a refusal that some endpoint forgot to record
+    is exactly the one an investigation will need. A principal is only present once the
+    token verified, so an unauthenticated attempt is a log line rather than an audit
+    record - there is no identity to attribute it to.
+    """
+    principal = getattr(request.state, "principal", None)
+    if principal is None:
+        return
+    context: AppContext = request.app.state.context
+    # The path carries the customer reference. Passing it as cx_id lets the recorder
+    # pseudonymise it in the action and the resource too, rather than the refusal record
+    # putting back in clear what every other record removes.
+    cx_id = request.path_params.get("cx_id") if request.path_params else None
+    try:
+        await context.recorder.audit(
+            principal=principal,
+            action=f"{request.method} {request.url.path}",
+            resource=request.url.path,
+            decision="rejected",
+            outcome="refused",
+            correlation_id=correlation_id,
+            cx_id=str(cx_id) if cx_id else None,
+            failure_reason=str(exc.code),
+        )
+    except Exception:
+        logger.exception("audit_of_refusal_failed")
 
 
 def _install_middleware(app: FastAPI) -> None:

@@ -70,11 +70,12 @@ class Recorder:
         """Append one record, chained to the tenant's previous one."""
         previous_seq, previous_hash = await self.store.audit.head(principal.tenant_id)
         cx_ref = self.redactor.pseudonym(cx_id) if cx_id else None
-        # A resource identifier such as "customers/CX-1234" carries the customer
-        # reference in clear, which would put back exactly what cx_ref removes. The
-        # same substitution is applied so one record cannot undo the other.
+        # An identifier such as "customers/CX-1234" carries the customer reference in
+        # clear, which would put back exactly what cx_ref removes. The substitution is
+        # applied to both free-text fields so one field cannot undo the other.
         if cx_id and cx_ref:
             resource = resource.replace(cx_id, cx_ref)
+            action = action.replace(cx_id, cx_ref)
         body: dict[str, Any] = {
             "tenant_id": principal.tenant_id,
             "seq": previous_seq + 1,
