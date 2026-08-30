@@ -1,5 +1,7 @@
 """The HTTP adapter is tested by making the outside world fail, not by mocking it away."""
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
@@ -267,7 +269,7 @@ INVOICES = {
     "currency": "GBP",
     "truncated": False,
 }
-NETWORK = {
+NETWORK: dict[str, Any] = {
     "state": "operational",
     "area_reference": "AREA-EDI-04",
     "incident_id": None,

@@ -21,7 +21,7 @@ def spec(**overrides: object) -> ToolSpec:
         "requires_human_approval": False,
     }
     base.update(overrides)
-    return ToolSpec(**base)  # type: ignore[arg-type]
+    return ToolSpec(**base)
 
 
 def test_a_read_only_tool_that_claims_to_be_unsafe_to_retry_is_rejected() -> None:

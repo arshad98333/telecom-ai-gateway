@@ -5,7 +5,7 @@ import pytest
 from telecom_mcp.adapters.fake_backend import FakeTelecomBackend
 from telecom_mcp.adapters.http_backend import HttpTelecomBackend
 from telecom_mcp.adapters.idempotency import MemoryIdempotencyStore, RedisIdempotencyStore
-from telecom_mcp.api.container import build_application
+from telecom_mcp.api.container import Application, build_application
 from telecom_mcp.security.verifier import JwksVerifier, LocalVerifier
 from tests.factory import settings
 from tests.fakes import FrozenClock, NoJitter, SequentialIds
@@ -23,7 +23,7 @@ PRODUCTION = {
 }
 
 
-def build(**overrides: str) -> object:
+def build(**overrides: str) -> Application:
     return build_application(
         settings(**overrides),
         clock=FrozenClock(),
