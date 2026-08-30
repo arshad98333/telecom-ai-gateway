@@ -67,7 +67,7 @@ async def test_a_valid_request_passes_every_stage() -> None:
     assert call.identity.subject == "CX-1234"
     assert call.spec.name == "get_customer_account"
     assert call.cx_id == "CX-1234"
-    assert call.arguments.cx_id == "CX-1234"
+    assert call.arguments.model_dump()["cx_id"] == "CX-1234"
 
 
 async def test_an_unknown_tool_is_refused_before_the_token_is_even_verified() -> None:

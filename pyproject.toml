@@ -52,6 +52,10 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/telecom_mcp"]
+artifacts = ["src/telecom_mcp/adapters/fixtures/*.json"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "docs", "Makefile", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.ruff]
 line-length = 100
