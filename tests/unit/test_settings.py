@@ -133,7 +133,7 @@ def test_settings_are_frozen_so_nothing_can_mutate_them_at_runtime() -> None:
     settings = load_settings(LOCAL_ENV)
 
     with pytest.raises(Exception, match=r"frozen|immutable"):
-        settings.backend = "http"  # type: ignore[misc]
+        settings.backend = "http"
 
 
 def test_the_example_environment_file_documents_every_setting() -> None:
