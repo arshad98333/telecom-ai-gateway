@@ -76,6 +76,13 @@ files = ["src", "tests"]
 module = ["mcp.*"]
 ignore_missing_imports = true
 
+# Validation tests deliberately hand wrong types to the models to prove they are
+# rejected at runtime, which is exactly what a static checker would forbid. Scoped to
+# this one error code so every other strictness rule still applies to the tests.
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disable_error_code = ["arg-type", "call-arg"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

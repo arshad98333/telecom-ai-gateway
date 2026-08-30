@@ -136,4 +136,4 @@ def test_security_administration_holds_no_customer_data_scopes() -> None:
 
 
 def test_an_unknown_role_grants_nothing_rather_than_everything() -> None:
-    assert effective_scopes("not_a_role", frozenset({Scope.ACCOUNT_READ})) == frozenset()  # type: ignore[arg-type]
+    assert effective_scopes("not_a_role", frozenset({Scope.ACCOUNT_READ})) == frozenset()
