@@ -90,6 +90,9 @@ class AuthorizedCall:
     cx_id: str
     correlation_id: str
     case_id: str | None
+    #: The verified bearer token, carried so downstream services can authorize the
+    #: person rather than trusting this one. Never logged and never audited.
+    raw_token: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +150,7 @@ class Authorizer:
             cx_id=cx_id,
             correlation_id=request.correlation_id,
             case_id=request.case_id,
+            raw_token=request.token,
         )
 
     # --- stages ---------------------------------------------------------------------

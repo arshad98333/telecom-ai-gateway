@@ -20,6 +20,8 @@ from typing import Any, Self, TypeVar
 import httpx
 from pydantic import ValidationError
 
+from telecom_mcp.adapters import translation
+from telecom_mcp.adapters.call_context import current_call
 from telecom_mcp.domain.errors import (
     AuthorizationError,
     BackendBadResponseError,
@@ -50,6 +52,8 @@ from telecom_mcp.domain.schemas import (
 
 TENANT_HEADER = "X-Tenant-Id"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+CORRELATION_HEADER = "X-Correlation-Id"
+SERVICE_CREDENTIAL_HEADER = "X-Service-Authorization"
 #: Responses larger than this are refused rather than loaded into memory.
 MAX_RESPONSE_BYTES = 1_000_000
 
@@ -78,7 +82,10 @@ def build_client(
             max_keepalive_connections=max(1, max_connections // 2),
         ),
         headers={
-            "Authorization": f"Bearer {api_key}",
+            # This service's own credential proves *which service* is calling. It is
+            # deliberately not the Authorization header: that carries the customer's
+            # token, because the middleware authorizes the person, not the robot.
+            SERVICE_CREDENTIAL_HEADER: f"Bearer {api_key}",
             "Accept": "application/json",
             "User-Agent": "telecom-mcp-tools/1.0",
         },
@@ -112,7 +119,11 @@ class HttpTelecomBackend:
         self, tenant_id: str, request: GetCustomerAccountInput
     ) -> GetCustomerAccountOutput:
         payload = await self._get(f"/customers/{request.cx_id}", tenant_id, "get_customer_account")
-        return self._parse(GetCustomerAccountOutput, payload, "get_customer_account")
+        return self._parse(
+            GetCustomerAccountOutput,
+            self._translate(translation.account, payload, "get_customer_account"),
+            "get_customer_account",
+        )
 
     async def get_active_services(
         self, tenant_id: str, request: GetActiveServicesInput
@@ -123,7 +134,11 @@ class HttpTelecomBackend:
             "get_active_services",
             params={"limit": request.limit},
         )
-        return self._parse(GetActiveServicesOutput, payload, "get_active_services")
+        return self._parse(
+            GetActiveServicesOutput,
+            self._translate(translation.services, payload, "get_active_services"),
+            "get_active_services",
+        )
 
     async def get_order_status(
         self, tenant_id: str, request: GetOrderStatusInput
@@ -134,7 +149,11 @@ class HttpTelecomBackend:
         payload = await self._get(
             f"/customers/{request.cx_id}/orders", tenant_id, "get_order_status", params=params
         )
-        return self._parse(GetOrderStatusOutput, payload, "get_order_status")
+        return self._parse(
+            GetOrderStatusOutput,
+            self._translate(translation.orders, payload, "get_order_status"),
+            "get_order_status",
+        )
 
     async def get_invoice_summary(
         self, tenant_id: str, request: GetInvoiceSummaryInput
@@ -148,7 +167,11 @@ class HttpTelecomBackend:
             "get_invoice_summary",
             params=params,
         )
-        return self._parse(GetInvoiceSummaryOutput, payload, "get_invoice_summary")
+        return self._parse(
+            GetInvoiceSummaryOutput,
+            self._translate(translation.invoices, payload, "get_invoice_summary"),
+            "get_invoice_summary",
+        )
 
     async def get_network_status(
         self, tenant_id: str, request: GetNetworkStatusInput
@@ -159,7 +182,11 @@ class HttpTelecomBackend:
         payload = await self._get(
             f"/customers/{request.cx_id}/network", tenant_id, "get_network_status", params=params
         )
-        return self._parse(GetNetworkStatusOutput, payload, "get_network_status")
+        return self._parse(
+            GetNetworkStatusOutput,
+            self._translate(translation.network, payload, "get_network_status"),
+            "get_network_status",
+        )
 
     # --- writes ---------------------------------------------------------------------
 
@@ -173,7 +200,11 @@ class HttpTelecomBackend:
             body=request.model_dump(mode="json", exclude={"idempotency_key"}),
             idempotency_key=request.idempotency_key,
         )
-        return self._parse(CreateSupportTicketOutput, payload, "create_support_ticket")
+        return self._parse(
+            CreateSupportTicketOutput,
+            self._translate(translation.ticket, payload, "create_support_ticket"),
+            "create_support_ticket",
+        )
 
     async def schedule_callback(
         self, tenant_id: str, request: ScheduleCallbackInput
@@ -185,7 +216,11 @@ class HttpTelecomBackend:
             body=request.model_dump(mode="json", exclude={"idempotency_key"}),
             idempotency_key=request.idempotency_key,
         )
-        return self._parse(ScheduleCallbackOutput, payload, "schedule_callback")
+        return self._parse(
+            ScheduleCallbackOutput,
+            self._translate(translation.callback, payload, "schedule_callback"),
+            "schedule_callback",
+        )
 
     async def request_refund_approval(
         self, tenant_id: str, request: RequestRefundApprovalInput
@@ -194,10 +229,18 @@ class HttpTelecomBackend:
             f"/customers/{request.cx_id}/refund-approvals",
             tenant_id,
             "request_refund_approval",
-            body=request.model_dump(mode="json", exclude={"idempotency_key"}),
+            body=self._translate(
+                translation.refund_request_body,
+                request.model_dump(mode="json", exclude={"idempotency_key"}),
+                "request_refund_approval",
+            ),
             idempotency_key=request.idempotency_key,
         )
-        return self._parse(RequestRefundApprovalOutput, payload, "request_refund_approval")
+        return self._parse(
+            RequestRefundApprovalOutput,
+            self._translate(translation.refund_approval, payload, "request_refund_approval"),
+            "request_refund_approval",
+        )
 
     async def ping(self) -> None:
         try:
@@ -247,7 +290,13 @@ class HttpTelecomBackend:
         json: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> Any:
+        call = current_call()
         headers = {TENANT_HEADER: tenant_id, **(extra_headers or {})}
+        if call is not None:
+            # The customer's own token. Without it the middleware refuses the call,
+            # which is the property that makes a compromised service credential useless.
+            headers["Authorization"] = f"Bearer {call.token}"
+            headers[CORRELATION_HEADER] = call.correlation_id
         try:
             response = await self._client.request(
                 method, path, params=params, json=json, headers=headers
@@ -297,4 +346,12 @@ class HttpTelecomBackend:
         try:
             return model.model_validate(payload)
         except ValidationError as exc:
+            raise BackendBadResponseError(operation=operation) from exc
+
+    @staticmethod
+    def _translate(translate: Any, payload: Any, operation: str) -> Any:
+        """Run a translation, turning any surprise in the payload into our own error."""
+        try:
+            return translate(payload)
+        except (KeyError, TypeError, ValueError) as exc:
             raise BackendBadResponseError(operation=operation) from exc

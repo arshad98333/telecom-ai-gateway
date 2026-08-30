@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from telecom_mcp.adapters.backend import TelecomBackend
+from telecom_mcp.adapters.call_context import CallContext, reset_call, set_call
 from telecom_mcp.adapters.idempotency import (
     IdempotencyStore,
     ReservationState,
@@ -197,9 +198,28 @@ class ToolExecutor:
             self._semaphore.release()
 
     async def _invoke(self, call: AuthorizedCall) -> ToolOutput:
-        method = getattr(self._backend, call.spec.name)
-        result: ToolOutput = await method(call.identity.tenant_id, call.arguments)
-        return result
+        """Call the backend with the caller's own identity in scope.
+
+        The middleware authorizes the person, not this service, so the customer's token
+        travels with the request. It is bound for the duration of this call only.
+        """
+        arguments = call.arguments.model_dump(mode="json")
+        token = set_call(
+            CallContext(
+                token=call.raw_token,
+                correlation_id=call.correlation_id,
+                idempotency_key=(
+                    str(arguments["idempotency_key"]) if "idempotency_key" in arguments else None
+                ),
+                case_id=call.case_id,
+            )
+        )
+        try:
+            method = getattr(self._backend, call.spec.name)
+            result: ToolOutput = await method(call.identity.tenant_id, call.arguments)
+            return result
+        finally:
+            reset_call(token)
 
     def _project(self, output: ToolOutput) -> dict[str, Any]:
         """Serialise and redact. ``in_logs=False``: a customer may see their own data."""

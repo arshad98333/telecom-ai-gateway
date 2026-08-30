@@ -1,5 +1,6 @@
 """The HTTP adapter is tested by making the outside world fail, not by mocking it away."""
 
+import json
 from typing import Any
 
 import httpx
@@ -79,6 +80,10 @@ async def test_a_write_forwards_the_idempotency_key_as_a_header_not_a_body_field
             201,
             json={
                 "ticket_id": "TCK-1",
+                "cx_id": "CX-1234",
+                "category": "billing",
+                "subject": "s",
+                "priority": "normal",
                 "state": "open",
                 "created_at": "2026-08-30T12:00:00Z",
                 "cancellable_until": "2026-08-30T12:15:00Z",
@@ -232,7 +237,7 @@ SERVICES = {
             "kind": "mobile",
             "plan_name": "Unlimited 5G",
             "status": "active",
-            "monthly_price": "24.00",
+            "monthly_price_minor": 2400,
             "currency": "GBP",
             "contract_end_date": None,
         }
@@ -260,12 +265,12 @@ INVOICES = {
             "state": "due",
             "issued_on": "2026-08-01T00:00:00Z",
             "due_on": "2026-09-01T00:00:00Z",
-            "total": "63.00",
-            "outstanding": "63.00",
+            "total_minor": 6300,
+            "outstanding_minor": 6300,
             "currency": "GBP",
         }
     ],
-    "total_outstanding": "63.00",
+    "total_outstanding_minor": 6300,
     "currency": "GBP",
     "truncated": False,
 }
@@ -345,6 +350,7 @@ async def test_a_callback_and_a_refund_request_are_posted_with_their_keys() -> N
             201,
             json={
                 "callback_id": "CB-1",
+                "cx_id": "CX-1234",
                 "scheduled_for": "2026-09-01T10:00:00Z",
                 "window": "morning",
                 "cancellable_until": "2026-09-01T09:00:00Z",
@@ -356,10 +362,18 @@ async def test_a_callback_and_a_refund_request_are_posted_with_their_keys() -> N
         return_value=httpx.Response(
             202,
             json={
-                "approval_request_id": "APR-1",
-                "state": "pending_approval",
-                "submitted_at": "2026-08-30T12:00:00Z",
-                "approver_role": "supervisor_approver",
+                "request_id": "APR-1",
+                "cx_id": "CX-1234",
+                "action": "refund",
+                "amount_minor": 450,
+                "currency": "GBP",
+                "reason": "duplicate_charge",
+                "justification": "Charged twice.",
+                "evidence": {"invoice_id": "INV-2026-08"},
+                "state": "pending",
+                "requested_by_role": "customer",
+                "created_at": "2026-08-30T12:00:00Z",
+                "expires_at": "2026-09-01T12:00:00Z",
                 "money_moved": False,
                 "deduplicated": False,
             },
@@ -392,5 +406,135 @@ async def test_a_callback_and_a_refund_request_are_posted_with_their_keys() -> N
 
     assert callback.callback_id == "CB-1"
     assert refund.money_moved is False
+    assert refund.approval_request_id == "APR-1"
     assert callback_route.calls.last.request.headers[IDEMPOTENCY_HEADER] == "idem-0000-0004"
     assert refund_route.calls.last.request.headers[IDEMPOTENCY_HEADER] == "idem-0000-0005"
+
+
+# --- identity propagation and translation -------------------------------------------
+
+
+@respx.mock
+async def test_the_customers_token_is_sent_and_our_credential_is_a_separate_header() -> None:
+    """The middleware authorizes the person, not this service.
+
+    Sending our own credential as Authorization would mean a compromised service
+    credential could read any customer's record, which is the property this arrangement
+    exists to remove.
+    """
+    from telecom_mcp.adapters.call_context import CallContext, reset_call, set_call
+    from telecom_mcp.adapters.http_backend import CORRELATION_HEADER, SERVICE_CREDENTIAL_HEADER
+
+    route = respx.get(f"{BASE}/customers/CX-1234").mock(
+        return_value=httpx.Response(200, json=ACCOUNT)
+    )
+    call = set_call(CallContext(token="customer-token", correlation_id="corr-99"))
+    try:
+        async with backend() as client:
+            await client.get_customer_account(TENANT, GetCustomerAccountInput(cx_id="CX-1234"))
+    finally:
+        reset_call(call)
+
+    request = route.calls.last.request
+    assert request.headers["Authorization"] == "Bearer customer-token"
+    assert request.headers[SERVICE_CREDENTIAL_HEADER] == "Bearer dummy-key"
+    assert request.headers[CORRELATION_HEADER] == "corr-99"
+
+
+@respx.mock
+async def test_minor_units_become_the_decimal_amount_the_tool_contract_exposes() -> None:
+    from decimal import Decimal
+
+    from telecom_mcp.domain.schemas import GetInvoiceSummaryInput
+
+    respx.get(f"{BASE}/customers/CX-1234/invoices").mock(
+        return_value=httpx.Response(200, json=INVOICES)
+    )
+
+    async with backend() as client:
+        invoices = await client.get_invoice_summary(
+            TENANT, GetInvoiceSummaryInput(cx_id="CX-1234", limit=5)
+        )
+
+    assert invoices.invoices[0].total == Decimal("63.00")
+    assert invoices.total_outstanding == Decimal("63.00")
+
+
+@respx.mock
+async def test_a_decimal_refund_amount_becomes_integer_minor_units_on_the_wire() -> None:
+    from telecom_mcp.domain.schemas import RequestRefundApprovalInput
+
+    route = respx.post(f"{BASE}/customers/CX-1234/refund-approvals").mock(
+        return_value=httpx.Response(
+            202,
+            json={
+                "request_id": "APR-1",
+                "cx_id": "CX-1234",
+                "action": "refund",
+                "amount_minor": 499,
+                "currency": "GBP",
+                "reason": "billing_error",
+                "justification": "j",
+                "evidence": {},
+                "state": "pending",
+                "requested_by_role": "customer",
+                "created_at": "2026-08-30T12:00:00Z",
+                "expires_at": "2026-09-01T12:00:00Z",
+                "money_moved": False,
+                "deduplicated": False,
+            },
+        )
+    )
+
+    async with backend() as client:
+        await client.request_refund_approval(
+            TENANT,
+            RequestRefundApprovalInput(
+                cx_id="CX-1234",
+                invoice_id="INV-1",
+                amount="4.99",
+                currency="GBP",
+                reason="billing_error",
+                justification="j",
+                idempotency_key="idem-0000-0009",
+            ),
+        )
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["amount_minor"] == 499
+    assert "amount" not in body, "the decimal form must not also be sent"
+
+
+@respx.mock
+async def test_a_middleware_response_missing_a_field_is_a_clean_backend_error() -> None:
+    # Not a KeyError three layers up: the adapter owns the translation and owns its
+    # failure.
+    from telecom_mcp.domain.schemas import GetActiveServicesInput
+
+    respx.get(f"{BASE}/customers/CX-1234/services").mock(
+        return_value=httpx.Response(
+            200, json={"services": [{"service_id": "SVC-1"}], "total_count": 1, "truncated": False}
+        )
+    )
+
+    async with backend() as client:
+        with pytest.raises(BackendBadResponseError):
+            await client.get_active_services(
+                TENANT, GetActiveServicesInput(cx_id="CX-1234", limit=5)
+            )
+
+
+def test_a_float_price_from_the_middleware_is_refused_rather_than_rounded() -> None:
+    from telecom_mcp.adapters.translation import minor_to_decimal
+
+    with pytest.raises(ValueError, match="expected integer minor units"):
+        minor_to_decimal(24.0)
+
+
+def test_an_amount_with_too_much_precision_cannot_be_sent() -> None:
+    from telecom_mcp.adapters.translation import decimal_to_minor
+
+    with pytest.raises(ValueError, match="more precision"):
+        decimal_to_minor("4.999")
+    assert decimal_to_minor("4.99") == 499
+    assert decimal_to_minor("0.01") == 1
