@@ -1,0 +1,108 @@
+name: release
+
+# Build the artifact once and promote that same artifact. Never rebuild for production,
+# because then production runs something that was never tested.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+
+      - name: The tag must match the packaged version
+        id: version
+        run: |
+          set -euo pipefail
+          packaged="$(uv run python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          tagged="${GITHUB_REF_NAME#v}"
+          if [ "$packaged" != "$tagged" ]; then
+            echo "tag $tagged does not match packaged version $packaged" >&2
+            exit 1
+          fi
+          echo "version=$packaged" >> "$GITHUB_OUTPUT"
+
+      - name: The changelog must describe this version
+        run: grep -q "\[${{ steps.version.outputs.version }}\]" CHANGELOG.md
+
+      - run: uv sync --frozen --all-extras
+      - run: make check
+      - run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distribution
+          path: dist/*
+          if-no-files-found: error
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: testpypi
+    permissions:
+      id-token: write  # trusted publishing; no long-lived token is stored anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distribution
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify-from-testpypi:
+    needs: [build, testpypi]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+      - name: Install from TestPyPI into an empty environment and verify it runs
+        run: |
+          set -euo pipefail
+          uv venv /tmp/verify --python 3.12
+          for attempt in 1 2 3 4 5; do
+            if uv pip install --python /tmp/verify/bin/python \
+                --index-url https://test.pypi.org/simple/ \
+                --extra-index-url https://pypi.org/simple/ \
+                "telecom-mcp-tools==${{ needs.build.outputs.version }}"; then
+              break
+            fi
+            echo "index not ready yet, retrying"; sleep 15
+          done
+          /tmp/verify/bin/python -c "
+          import telecom_mcp
+          from telecom_mcp.adapters.fake_backend import load_seed
+          from telecom_mcp.domain.tools import TOOL_SPECS
+          assert telecom_mcp.__version__ == '${{ needs.build.outputs.version }}'
+          assert 'tenants' in load_seed()
+          assert len(TOOL_SPECS) == 8
+          print('verified from TestPyPI')
+          "
+          TELECOM_MCP_LOCAL_VERIFIER_SECRET=release-check-secret-long-enough-32 \
+            /tmp/verify/bin/telecom-mcp check-config > /dev/null
+
+  pypi:
+    needs: [build, verify-from-testpypi]
+    runs-on: ubuntu-24.04
+    environment: pypi  # requires a human approval on the environment
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distribution
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

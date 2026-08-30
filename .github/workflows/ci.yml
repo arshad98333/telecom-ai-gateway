@@ -1,0 +1,119 @@
+name: ci
+
+# A check that reports but does not block is decoration. Every job here is required on
+# the protected branch, and the pipeline calls the same make targets a developer runs,
+# so nothing can pass locally and fail here for a reason nobody can reproduce.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+
+jobs:
+  check:
+    name: check (py${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The package supports both, so both are tested. Testing only one is how a
+        # supported version quietly stops working.
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the secret scan reads history, not just the diff
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install from the lock file
+        run: uv sync --frozen --all-extras --python ${{ matrix.python }}
+
+      - name: Fail if the lock file is out of date
+        run: uv lock --check
+
+      - name: Format, lint, types, tests and coverage
+        run: make check
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python }}
+          path: coverage.xml
+          if-no-files-found: warn
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Dependency vulnerability audit
+        run: uv run --with pip-audit pip-audit --strict
+
+      - name: Secret scan of the whole history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Static security analysis
+        run: uv run --with bandit bandit -r src -q
+
+  clean-install:
+    name: clean install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      # Deliberately uncached: this is the job that proves a fresh install works.
+      - name: Build a wheel and install it into an empty environment
+        run: ./scripts/clean_install_check.sh
+
+  container:
+    name: container
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t telecom-mcp-tools:ci .
+
+      - name: Start it and prove it answers readiness
+        run: ./scripts/docker_smoke.sh telecom-mcp-tools:ci
+
+      - name: Record the base image digest
+        run: |
+          mkdir -p dist
+          docker image inspect python:3.12-slim-bookworm \
+            --format '{{index .RepoDigests 0}}' | tee dist/base-image-digest.txt
+
+      - name: Upload the digest with the build record
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-image-digest
+          path: dist/base-image-digest.txt

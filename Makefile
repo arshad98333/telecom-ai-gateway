@@ -53,6 +53,9 @@ build: ## Produce the deployable artifact
 
 docker-build: ## Build the container image
 	cd "$(CURDIR)" && docker build -t telecom-mcp-tools:local .
+	mkdir -p "$(CURDIR)/dist"
+	docker image inspect python:3.12-slim-bookworm --format '{{index .RepoDigests 0}}' > "$(CURDIR)/dist/base-image-digest.txt"
+	@echo "base image digest recorded in dist/base-image-digest.txt"
 
 docker-smoke: docker-build ## Start the built image and prove it answers readiness
 	cd "$(CURDIR)" && ./scripts/docker_smoke.sh

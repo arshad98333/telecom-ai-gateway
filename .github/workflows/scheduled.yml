@@ -1,0 +1,29 @@
+name: scheduled
+
+# A weekly uncached run against main. This catches breakage caused by the outside
+# world - a yanked dependency, a new advisory, a base image change - rather than by
+# anything we did, which is exactly the breakage nobody notices until a release day.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+          enable-cache: false
+      - run: uv sync --frozen --all-extras
+      - run: make check
+      - run: uv run --with pip-audit pip-audit --strict
+      - run: ./scripts/clean_install_check.sh
