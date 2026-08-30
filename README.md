@@ -22,6 +22,9 @@ in one place.
 Nothing else. No database, no message broker, no accounts, no network — the default
 configuration runs against a committed fixture backend.
 
+Working in VS Code? Open `../telecom.code-workspace` and follow
+[`../docs/RUN-IN-VSCODE.md`](../docs/RUN-IN-VSCODE.md).
+
 ## Install
 
 ```bash

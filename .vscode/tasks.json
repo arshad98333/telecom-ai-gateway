@@ -1,0 +1,62 @@
+{
+  "version": "2.0.0",
+  "options": { "cwd": "${workspaceFolder}" },
+  "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+  "tasks": [
+    {
+      "label": "Install dependencies",
+      "type": "shell",
+      "command": "uv sync --frozen --all-extras",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Mint a token for the tools server",
+      "detail": "Prints a token both this service and the middleware accept",
+      "type": "shell",
+      "command": "uv run --env-file .env python scripts/mint_dev_token.py --role ${input:role}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Check the configuration",
+      "type": "shell",
+      "command": "uv run --env-file .env telecom-mcp check-config",
+      "problemMatcher": []
+    },
+    {
+      "label": "Verify an audit log",
+      "detail": "Reads a JSON-lines audit log and reports whether its chain is intact",
+      "type": "shell",
+      "command": "uv run telecom-mcp verify-audit ${input:auditPath}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run the tests",
+      "type": "shell",
+      "command": "uv run pytest -q",
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "Everything CI runs",
+      "type": "shell",
+      "command": "uv run ruff format --check . && uv run ruff check . && uv run mypy && uv run pytest --cov -q",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "role",
+      "type": "pickString",
+      "description": "Which identity should the token carry?",
+      "options": ["customer", "support_agent", "supervisor_approver", "admin_security"],
+      "default": "customer"
+    },
+    {
+      "id": "auditPath",
+      "type": "promptString",
+      "description": "Path to a JSON-lines audit log",
+      "default": "audit.log"
+    }
+  ]
+}
