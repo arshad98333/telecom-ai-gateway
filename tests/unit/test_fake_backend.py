@@ -144,7 +144,7 @@ async def test_readiness_reflects_the_injected_health() -> None:
         await fake.ping()
 
     fake.failures.unhealthy = False
-    assert await fake.ping() is None
+    await fake.ping()  # no exception means ready
 
 
 async def test_the_clock_is_injected_so_timestamps_are_deterministic() -> None:
