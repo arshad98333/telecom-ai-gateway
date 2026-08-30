@@ -135,3 +135,26 @@ def test_non_string_values_pass_through_unchanged(redactor: Redactor) -> None:
         "ok": True,
         "nothing": None,
     }
+
+
+def test_a_passcode_spoken_aloud_in_free_text_is_removed(redactor: Redactor) -> None:
+    # Voice transcription puts the passcode straight into the conversation text.
+    text = "My passcode is 4821, and the PIN on the account is 0000."
+
+    scrubbed = redactor.redact({"note": text})["note"]
+
+    assert "4821" not in scrubbed
+    assert "0000" not in scrubbed
+    assert "passcode" in scrubbed  # the context stays, so the log is still readable
+
+
+def test_an_unrelated_four_digit_number_survives(redactor: Redactor) -> None:
+    # A blanket four-digit scrub would destroy invoice numbers, years and amounts.
+    assert redactor.redact({"note": "Invoice 2026 for 1234 units"})["note"] == (
+        "Invoice 2026 for 1234 units"
+    )
+
+
+def test_a_ticket_subject_is_not_mistaken_for_a_token_subject(redactor: Redactor) -> None:
+    assert redactor.redact({"subject": "Bill looks wrong"})["subject"] == "Bill looks wrong"
+    assert str(redactor.redact({"sub": "CX-1234"})["sub"]).startswith("ref_")

@@ -57,7 +57,9 @@ NEVER_DISCLOSED: Final[frozenset[str]] = frozenset(
 )
 
 #: Fields replaced by a stable pseudonym, so correlation survives redaction.
-PSEUDONYMISED: Final[frozenset[str]] = frozenset({"cx_id", "customer_id", "subject", "sub"})
+# "sub" is the token subject. "subject" is deliberately absent: a support ticket has a
+# subject too, and pseudonymising it would destroy the one field an agent needs to read.
+PSEUDONYMISED: Final[frozenset[str]] = frozenset({"cx_id", "customer_id", "sub"})
 
 #: Fields removed from telemetry but legitimately present in a tool response the
 #: customer themselves asked for.
@@ -84,6 +86,13 @@ _JWT = re.compile(r"\beyJ[A-Za-z0-9._-]{10,}")
 _CARD = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 # International or national phone shapes, at least 9 digits.
 _PHONE = re.compile(r"\+?\d[\d\s().-]{7,}\d")
+# A short numeric secret named in the surrounding text: "my passcode is 4821", "pin 0000".
+# A blanket four-digit scrub would destroy legitimate numbers, so the word has to be
+# there, within a short distance of the digits.
+_NAMED_SHORT_SECRET = re.compile(
+    r"(?i)\b(passcode|pass code|pin|otp|one[- ]time code|security code|access code)\b"
+    r"(.{0,30}?)\d{3,8}"
+)
 
 _MAX_DEPTH: Final = 12
 _MAX_SEQUENCE_ITEMS: Final = 200
@@ -156,6 +165,7 @@ class Redactor:
         value = _BEARER.sub(f"Bearer {REMOVED}", value)
         value = _JWT.sub(REMOVED, value)
         value = _CARD.sub(REMOVED, value)
+        value = _NAMED_SHORT_SECRET.sub(lambda m: f"{m.group(1)}{m.group(2)}{REMOVED}", value)
         if not in_logs:
             return value
         value = _EMAIL.sub(REDACTED, value)
