@@ -1,0 +1,94 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "telecom-mcp-tools"
+version = "1.0.0"
+description = "Security-enforcing MCP tool server for telecom customer support agents."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11,<3.14"
+authors = [{ name = "AI Engineering" }]
+keywords = ["mcp", "telecom", "agent", "tools"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed",
+]
+dependencies = [
+  "mcp>=1.9,<2",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.4,<3",
+  "httpx>=0.27,<0.29",
+  "pyjwt[crypto]>=2.9,<3",
+  "structlog>=24.4,<26",
+]
+
+[project.optional-dependencies]
+redis = ["redis>=5.0,<7"]
+http = ["uvicorn>=0.30,<1", "starlette>=0.37,<1"]
+
+[project.scripts]
+telecom-mcp = "telecom_mcp.api.cli:main"
+
+[project.urls]
+Homepage = "https://example.invalid/telecom-mcp-tools"
+Changelog = "https://example.invalid/telecom-mcp-tools/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "pytest-cov>=5.0,<7",
+  "pytest-randomly>=3.15,<4",
+  "respx>=0.21,<1",
+  "ruff>=0.6,<1",
+  "mypy>=1.11,<2",
+  "types-redis>=4.6",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/telecom_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TID", "RUF", "S", "ASYNC", "DTZ"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["mcp.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+markers = ["integration: needs a containerised dependency"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/telecom_mcp"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
