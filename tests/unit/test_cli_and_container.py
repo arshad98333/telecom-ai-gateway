@@ -261,3 +261,66 @@ async def test_check_store_reports_a_usable_in_memory_store(
 
 def test_check_store_is_a_command_the_parser_knows() -> None:
     assert build_parser().parse_args(["check-store"]).command == "check-store"
+
+
+def test_reload_passes_an_import_string_because_uvicorn_refuses_an_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--reload` exited immediately before this: uvicorn cannot re-import an object."""
+    import uvicorn
+
+    from telecom_middleware.api.cli import ASGI_IMPORT_STRING, _serve
+
+    captured: dict[str, Any] = {}
+
+    def fake_run(target: Any, **kwargs: Any) -> None:
+        captured["target"] = target
+        captured.update(kwargs)
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    settings = load_settings({"TELECOM_MW_LOCAL_VERIFIER_SECRET": SECRET})
+
+    _serve(settings, reload=True)
+
+    assert captured["target"] == ASGI_IMPORT_STRING
+    assert captured["reload"] is True
+
+
+def test_without_reload_the_built_application_is_served_directly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import uvicorn
+    from fastapi import FastAPI
+
+    from telecom_middleware.api.cli import _serve
+
+    captured: dict[str, Any] = {}
+
+    def fake_run(target: Any, **kwargs: Any) -> None:
+        captured["target"] = target
+        captured.update(kwargs)
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    settings = load_settings({"TELECOM_MW_LOCAL_VERIFIER_SECRET": SECRET})
+
+    _serve(settings, reload=False)
+
+    assert isinstance(captured["target"], FastAPI)
+    assert captured["port"] == settings.http_port
+
+
+def test_the_importable_application_builds_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The reloader imports this module in a fresh process; if it cannot build, the
+    # reloader loops forever printing nothing useful.
+    clear_env(monkeypatch)
+    monkeypatch.setenv("TELECOM_MW_LOCAL_VERIFIER_SECRET", SECRET)
+
+    import importlib
+
+    import telecom_middleware.api.asgi as asgi
+
+    reloaded = importlib.reload(asgi)
+
+    assert reloaded.app.title == "Telecom middleware"

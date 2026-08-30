@@ -2,13 +2,20 @@
 # Run from the project root, or from anywhere with:  make -C /path/to/repo <target>
 # CURDIR is quoted everywhere so a path containing spaces still works.
 UV := uv
+
+# Runtime commands read .env when it exists; the test targets deliberately do not, so a
+# suite never picks up a real cluster and starts writing to it.
+# Resolved in the shell rather than with $(wildcard ...), which splits a path on spaces.
+define run_with_env
+cd "$(CURDIR)" && if [ -f .env ]; then $(UV) run --env-file .env $(1); else $(UV) run $(1); fi
+endef
 # Override to keep the virtualenv off a slow network mount:
 #   export UV_PROJECT_ENVIRONMENT=$HOME/.venvs/telecom-mcp
 UV_PROJECT_ENVIRONMENT ?= $(CURDIR)/.venv
 export UV_PROJECT_ENVIRONMENT
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev serve test test-fast test-int seed lint format typecheck check cov cov-mongo build clean audit docker-build docker-smoke
+.PHONY: help install dev serve check-store migrate seed export-seed test test-fast test-int lint format typecheck check cov cov-mongo build clean audit docker-build docker-smoke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-13s %s\n", $$1, $$2}'
@@ -16,11 +23,11 @@ help: ## Show this help
 install: ## Install everything needed to work on this, from the lock file
 	cd "$(CURDIR)" && $(UV) sync --frozen --all-extras
 
-dev: ## Run the API locally with reload
-	cd "$(CURDIR)" && $(UV) run telecom-middleware serve --reload
+dev: ## Run the API locally with reload (reads .env)
+	@$(call run_with_env,telecom-middleware serve --reload)
 
-serve: ## Run the API without reload, the way the container does
-	cd "$(CURDIR)" && $(UV) run telecom-middleware serve
+serve: ## Run the API without reload, the way the container does (reads .env)
+	@$(call run_with_env,telecom-middleware serve)
 
 test: ## Run the full test suite
 	cd "$(CURDIR)" && $(UV) run pytest
@@ -31,8 +38,17 @@ test-fast: ## Run only the fast tests (no containers)
 test-int: ## Run the tests that need a real MongoDB replica set
 	cd "$(CURDIR)" && $(UV) run pytest tests -m mongo
 
+check-store: ## Is the configured database reachable, a replica set, and indexed
+	@$(call run_with_env,telecom-middleware check-store)
+
+migrate: ## Create collections, validators and indexes
+	@$(call run_with_env,telecom-middleware migrate)
+
 seed: ## Load the demo dataset into the configured MongoDB
-	cd "$(CURDIR)" && $(UV) run telecom-middleware seed
+	@$(call run_with_env,telecom-middleware seed)
+
+export-seed: ## Regenerate the mongosh seed script from the code
+	cd "$(CURDIR)" && $(UV) run python scripts/export_seed.py
 
 lint: ## Check style and common mistakes
 	cd "$(CURDIR)" && $(UV) run ruff check . && $(UV) run ruff format --check .

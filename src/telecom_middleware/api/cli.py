@@ -11,6 +11,7 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
+from typing import Any
 
 from telecom_middleware._version import __version__
 from telecom_middleware.config.settings import Settings, load_settings
@@ -64,15 +65,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     return EXIT_OK
 
 
+#: The reloader re-imports this in a fresh process, so it needs a name, not an object.
+ASGI_IMPORT_STRING = "telecom_middleware.api.asgi:app"
+
+
 def _serve(settings: Settings, *, reload: bool) -> None:
     import uvicorn
 
     from telecom_middleware.api.app import build_app
     from telecom_middleware.api.container import build_context
 
-    app = build_app(build_context(settings))
+    # With reload, uvicorn refuses an application object outright - it cannot re-import
+    # one - so the import string is used instead and the app is built in the child.
+    target: Any = ASGI_IMPORT_STRING if reload else build_app(build_context(settings))
     uvicorn.run(
-        app,
+        target,
         host=settings.http_host,
         port=settings.http_port,
         reload=reload,
