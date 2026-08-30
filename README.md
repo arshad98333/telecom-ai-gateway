@@ -28,7 +28,7 @@ make test        # 300+ tests, offline, no database, no credentials
 make check       # exactly what CI runs: format, lint, types, tests, coverage gate
 ```
 
-A pass looks like `329 passed`. The MongoDB-backed contract tests are *deselected* by
+A pass looks like `317 passed, 43 deselected`. The MongoDB-backed contract tests are *deselected* by
 default, not skipped — a deselection is visible in the run header, a skip is an
 invisible failure. To run them:
 
