@@ -16,12 +16,14 @@ worker, so none of them can start with configuration the others rejected.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from telecom_mcp.domain.errors import ConfigurationError
+from telecom_mcp.guardrails.policy import GuardrailPolicy
 
 Environment = Literal["local", "staging", "production"]
 BackendKind = Literal["fake", "http"]
@@ -96,6 +98,26 @@ class Settings(BaseSettings):
     idempotency_store: IdempotencyStoreKind = "memory"
     idempotency_ttl_s: int = Field(default=86_400, ge=60, le=604_800)
     redis_url: str | None = None
+
+    # --- Guardrails ---
+    # Defaults match GuardrailPolicy, which is the strict posture. Every value here
+    # exists so an environment can tighten it; loosening one is a deliberate act that
+    # shows up in a diff of the environment, not a forgotten variable.
+    guardrails_enabled: bool = True
+    guardrail_max_argument_bytes: int = Field(default=8_192, ge=256, le=1_048_576)
+    guardrail_max_argument_depth: int = Field(default=6, ge=1, le=32)
+    guardrail_max_string_length: int = Field(default=4_096, ge=16, le=1_048_576)
+    guardrail_max_array_items: int = Field(default=100, ge=1, le=10_000)
+    guardrail_max_object_keys: int = Field(default=50, ge=1, le=1_000)
+    guardrail_injection_scan: bool = True
+    guardrail_rate_limit_per_minute: int = Field(default=120, ge=1, le=100_000)
+    guardrail_rate_limit_burst: int = Field(default=30, ge=0, le=10_000)
+    guardrail_write_actions_per_case: int = Field(default=5, ge=1, le=1_000)
+    guardrail_action_budget_window_s: float = Field(default=3_600.0, gt=0, le=86_400)
+    guardrail_callback_horizon_days: int = Field(default=90, ge=1, le=730)
+    guardrail_refund_ceiling: Decimal = Field(default=Decimal("5.00"), gt=Decimal("0"))
+    guardrail_max_output_bytes: int = Field(default=262_144, ge=1_024, le=8_388_608)
+    guardrail_output_secret_scan: bool = True
 
     # --- Audit ---
     audit_sink: AuditSinkKind = "stdout"
@@ -173,8 +195,24 @@ class Settings(BaseSettings):
                     "TELECOM_MCP_IDEMPOTENCY_STORE must be 'redis' in production, "
                     "because an in-memory store cannot deduplicate across replicas"
                 )
+            if not self.guardrails_enabled:
+                unsafe.append(
+                    "TELECOM_MCP_GUARDRAILS_ENABLED must be true in production; the "
+                    "switch exists for a developer reproducing a payload, not for a "
+                    "deployment"
+                )
+            if not self.guardrail_injection_scan:
+                unsafe.append("TELECOM_MCP_GUARDRAIL_INJECTION_SCAN must be true in production")
+            if not self.guardrail_output_secret_scan:
+                unsafe.append(
+                    "TELECOM_MCP_GUARDRAIL_OUTPUT_SECRET_SCAN must be true in production"
+                )
             if unsafe:
                 raise ValueError("unsafe production configuration:\n  - " + "\n  - ".join(unsafe))
+
+        # Building the policy validates it; a bad threshold must fail here rather than
+        # on the first request that happens to trip it.
+        self.guardrail_policy()
 
         # A single attempt must fit inside the total budget, or the budget is a lie.
         attempts = self.retry_attempts + 1
@@ -186,6 +224,31 @@ class Settings(BaseSettings):
                 f"{self.tool_timeout_s:.1f}s (attempts configured: {attempts})"
             )
         return self
+
+    def guardrail_policy(self) -> GuardrailPolicy:
+        """The policy object the guardrail pipeline runs on.
+
+        Built here rather than in the composition root so that the policy is validated
+        by the same startup that validates everything else. A threshold that cannot be
+        satisfied fails before the first request, not on the request that trips it.
+        """
+        return GuardrailPolicy(
+            enabled=self.guardrails_enabled,
+            max_argument_bytes=self.guardrail_max_argument_bytes,
+            max_argument_depth=self.guardrail_max_argument_depth,
+            max_string_length=self.guardrail_max_string_length,
+            max_array_items=self.guardrail_max_array_items,
+            max_object_keys=self.guardrail_max_object_keys,
+            injection_scan=self.guardrail_injection_scan,
+            rate_limit_per_minute=self.guardrail_rate_limit_per_minute,
+            rate_limit_burst=self.guardrail_rate_limit_burst,
+            write_actions_per_case=self.guardrail_write_actions_per_case,
+            action_budget_window_s=self.guardrail_action_budget_window_s,
+            callback_horizon_days=self.guardrail_callback_horizon_days,
+            refund_ceiling=self.guardrail_refund_ceiling,
+            max_output_bytes=self.guardrail_max_output_bytes,
+            output_secret_scan=self.guardrail_output_secret_scan,
+        )
 
     @property
     def effective_service_token_audience(self) -> str | None:

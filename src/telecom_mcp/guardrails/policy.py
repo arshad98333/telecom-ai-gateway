@@ -39,7 +39,6 @@ class GuardrailPolicy:
 
     # --- Content ---
     injection_scan: bool = True
-    identifier_format_checks: bool = True
 
     # --- Volume ---
     #: Sustained rate per identity, and how far above it one burst may go.
@@ -118,7 +117,6 @@ class GuardrailPolicy:
             "max_array_items": self.max_array_items,
             "max_object_keys": self.max_object_keys,
             "injection_scan": self.injection_scan,
-            "identifier_format_checks": self.identifier_format_checks,
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "rate_limit_burst": self.rate_limit_burst,
             "write_actions_per_case": self.write_actions_per_case,
