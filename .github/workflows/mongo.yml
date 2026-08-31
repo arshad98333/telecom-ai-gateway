@@ -1,0 +1,102 @@
+# The MongoDB suite, on every merge request.
+#
+# These 43 tests are deselected from `make check` because they need a real replica set:
+# the transactional outbox commits atomically and the supervisor's live feed reads a
+# change stream, and neither works against a standalone mongod. Left to a developer's
+# laptop that meant they ran when someone remembered, which is the same as not running.
+#
+# The replica set here is ephemeral - created for the job, thrown away with the runner -
+# so a test that leaves rubbish behind cannot poison the next run, and no shared cluster
+# needs credentials in CI.
+
+name: mongo
+
+on:
+  pull_request:
+  push:
+    branches: [main, development]
+  workflow_dispatch:
+
+concurrency:
+  group: mongo-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  replica-set:
+    name: middleware against a real replica set
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      TELECOM_MW_ENV: local
+      TELECOM_MW_STORE: mongodb
+      TELECOM_MW_MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false
+      TELECOM_MW_MONGODB_DATABASE: telecom_ci
+      TELECOM_MW_CHANGE_STREAM_ENABLED: "true"
+      # Local verifier only. The settings validator refuses it when ENV=production, so
+      # this cannot leak into a deployed configuration by being copied.
+      TELECOM_MW_IDENTITY_VERIFIER: local
+      TELECOM_MW_LOCAL_VERIFIER_SECRET: ci-only-secret-not-for-production-0123456789
+      TELECOM_MW_JWT_AUDIENCE: https://api.telecom.example/v1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The compose file's mongo service already initiates rs0 in its healthcheck and
+      # reports healthy only once a primary has been elected. Reusing it means CI and a
+      # laptop stand up the same thing, rather than two definitions that drift.
+      - name: Start the replica set
+        run: docker compose up -d --wait --wait-timeout 180 mongo
+
+      - name: Show what we are testing against
+        run: |
+          docker compose exec -T mongo mongosh --quiet --eval \
+            'JSON.stringify({set: rs.status().set, primary: rs.isMaster().primary, version: db.version()})'
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: telecom-middleware/uv.lock
+
+      - name: Install
+        working-directory: telecom-middleware
+        run: uv sync --frozen --all-extras
+
+      # -m mongo is the marker the suite deselects locally. Running it here is the whole
+      # point of the job, so an empty selection is a failure, not a pass: --strict-markers
+      # catches a renamed marker, and the exit-5 check catches a suite that collected
+      # nothing at all.
+      - name: Run the MongoDB suite
+        working-directory: telecom-middleware
+        shell: bash
+        run: |
+          status=0
+          uv run pytest tests -m mongo --strict-markers \
+            --junitxml=junit-mongo.xml \
+            --cov --cov-config=coverage-mongo.toml \
+            --cov-report=term-missing --cov-report=xml:coverage-mongo.xml || status=$?
+          if [ "$status" -eq 5 ]; then
+            echo "::error::No tests matched -m mongo. The marker moved, or the suite is not being collected."
+            exit 1
+          fi
+          exit "$status"
+
+      - name: Mongo logs, if that failed
+        if: failure()
+        run: docker compose logs --no-color mongo | tail -n 200
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mongo-results
+          path: |
+            telecom-middleware/junit-mongo.xml
+            telecom-middleware/coverage-mongo.xml
+          if-no-files-found: warn
+
+      - name: Tear the replica set down
+        if: always()
+        run: docker compose down -v
