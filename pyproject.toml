@@ -1,13 +1,14 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "telecom-mcp-tools"
-version = "1.0.0"
+version = "1.1.0"
 description = "Security-enforcing MCP tool server for telecom customer support agents: OIDC/JWKS identity, role-based scopes, per-call authorization, idempotent writes and a tamper-evident audit trail."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.14"
 authors = [{ name = "Arshad", email = "arshad@arshadify.online" }]
 keywords = ["mcp", "model-context-protocol", "telecom", "agent", "tools", "auth0", "oidc", "rbac"]
@@ -15,7 +16,6 @@ classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Intended Audience :: Telecommunications Industry",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -57,7 +57,7 @@ telecom-mcp = "telecom_mcp.api.cli:main"
 Homepage = "https://github.com/arshad98333/telecom-mcp-tools"
 Documentation = "https://github.com/arshad98333/telecom-mcp-tools#readme"
 Repository = "https://github.com/arshad98333/telecom-mcp-tools"
-Changelog = "https://github.com/arshad98333/telecom-mcp-tools/blob/Arshad/CHANGELOG.md"
+Changelog = "https://github.com/arshad98333/telecom-mcp-tools/blob/development/CHANGELOG.md"
 Issues = "https://github.com/arshad98333/telecom-mcp-tools/issues"
 
 [dependency-groups]
@@ -77,7 +77,28 @@ packages = ["src/telecom_mcp"]
 artifacts = ["src/telecom_mcp/adapters/fixtures/*.json"]
 
 [tool.hatch.build.targets.sdist]
+# Named explicitly rather than left to the default. An sdist built from a working
+# directory picks up whatever is sitting in it, and the one thing that must never reach
+# a public index is a populated .env - so the include list is a allow-list and the
+# excludes below are a second, unconditional refusal on top of it.
 include = ["src", "tests", "docs", "Makefile", "README.md", "CHANGELOG.md", "LICENSE"]
+exclude = [
+  # Never, under any circumstances, and regardless of what `include` says.
+  ".env",
+  ".env.*",
+  "!.env.example",
+  "**/.env",
+  "**/.env.*",
+  # Deployment templates for one particular cloud. They belong in the repository, not
+  # in something a stranger downloads to build the package.
+  "infra",
+  ".gitignore",
+  "**/__pycache__",
+]
+
+[tool.hatch.build.targets.wheel.force-include]
+# Nothing. Listed so that adding a data file is a deliberate edit here rather than a
+# side effect of where someone happened to put it.
 
 [tool.ruff]
 line-length = 100

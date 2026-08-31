@@ -62,7 +62,36 @@ jobs:
 
       - run: uv sync --frozen --all-extras
       - run: make check
-      - run: uv build
+
+      # Build into an empty directory. A stale wheel from a previous version sitting in
+      # dist/ is how `twine upload dist/*` ends up re-uploading, or failing on, a
+      # release nobody asked for.
+      - run: rm -rf dist && uv build
+
+      - name: The artifacts must carry no environment file and no private key
+        run: |
+          set -euo pipefail
+          found=0
+          for archive in dist/*.tar.gz; do
+            if tar tzf "$archive" | grep -Ev '\.env\.example$' | grep -E '(^|/)\.env' ; then
+              echo "::error title=Secret in sdist::$archive contains an environment file"
+              found=1
+            fi
+          done
+          for archive in dist/*.whl; do
+            if unzip -Z1 "$archive" | grep -Ev '\.env\.example$' | grep -E '(^|/)\.env' ; then
+              echo "::error title=Secret in wheel::$archive contains an environment file"
+              found=1
+            fi
+          done
+          if grep -rlqE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' dist/ 2>/dev/null; then
+            echo "::error title=Key material::a private key is inside the distribution"
+            found=1
+          fi
+          [ "$found" -eq 0 ] && echo "artifacts carry nothing they should not"
+
+      - name: The metadata must be valid for the index that will receive it
+        run: uvx twine check --strict dist/*
 
       - uses: actions/upload-artifact@v4
         with:
