@@ -54,11 +54,11 @@ azure-monitor = [
 telecom-mcp = "telecom_mcp.api.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/arshad98333/telecom-mcp-tools"
-Documentation = "https://github.com/arshad98333/telecom-mcp-tools#readme"
-Repository = "https://github.com/arshad98333/telecom-mcp-tools"
-Changelog = "https://github.com/arshad98333/telecom-mcp-tools/blob/development/CHANGELOG.md"
-Issues = "https://github.com/arshad98333/telecom-mcp-tools/issues"
+Homepage = "https://github.com/arshad98333/telecom-ai-gateway"
+Documentation = "https://github.com/arshad98333/telecom-ai-gateway/blob/main/telecom-mcp/README.md"
+Repository = "https://github.com/arshad98333/telecom-ai-gateway"
+Changelog = "https://github.com/arshad98333/telecom-ai-gateway/blob/main/telecom-mcp/CHANGELOG.md"
+Issues = "https://github.com/arshad98333/telecom-ai-gateway/issues"
 
 [dependency-groups]
 dev = [
