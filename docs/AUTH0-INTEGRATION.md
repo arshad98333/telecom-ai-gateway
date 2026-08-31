@@ -329,6 +329,10 @@ server sends it in `X-Service-Authorization` while the customer's token travels 
 
 - an unknown caller is refused (`service_not_recognised`) whatever user token it holds,
   so a stolen customer token is worth nothing replayed from elsewhere;
+- a caller that sends **no** service credential at all is refused with a different code
+  (`service_credential_missing`) naming the header, because forgetting a header and
+  being unknown are the same refusal to an attacker and completely different problems
+  to whoever is debugging. Only the absence is named; a wrong value stays opaque;
 - a service credential alone is refused (`unauthenticated`), and even a valid one
   presented in the `Authorization` slot is refused by `require_human`, so a leaked
   service credential reads no customer record.
@@ -477,9 +481,11 @@ someone forgetting a variable.
 | `token header is malformed` | An opaque token: the login did not request the API audience. |
 | `forbidden`, with the role clearly assigned | "Add Permissions in the Access Token" is off, so the token carries no `permissions` array. |
 | `cross_account_denied` for the customer's own account | `app_metadata.cx_id` does not match the `cx_id` being requested. |
-| `tools/list` returns `[]` | No token, or an unverifiable one. The catalogue is not a place to leak whether a name exists. |
+| `tools/list` returns `[]` | Either no token at all, or a verified identity holding no scope for any tool. A token that cannot be verified is now an error naming the reason, not silence. |
+| `tools/list` returns `token_invalid` | The token did not verify. Check `TELECOM_MCP_IDENTITY_VERIFIER` matches how it was minted, and that `TELECOM_MCP_JWT_AUDIENCE` is one of its `aud` values. |
 | `readyz` reports `telecom_middleware` unhealthy | The MCP server cannot reach the middleware. Check `TELECOM_MCP_BACKEND_BASE_URL` and that the middleware is running. |
 | `307` from `POST /mcp` | Use `/mcp/`, with the trailing slash. |
+| `service_credential_missing` | Nothing arrived in `X-Service-Authorization`. Either the caller is not the tool server (an external test runner can only send `Authorization`), or `TELECOM_MCP_BACKEND_API_KEY` is empty. See `testsprite/profile/` for the external-test profile. |
 | `service_not_recognised` | The middleware does not accept the caller. In `shared_secret` mode, `TELECOM_MCP_BACKEND_API_KEY` and `TELECOM_MW_SERVICE_SHARED_SECRET` differ. In `jwks` mode, the M2M token expired, or its client is not in `TELECOM_MW_SERVICE_ALLOWED_CLIENT_IDS`. |
 
 ## Reference
