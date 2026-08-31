@@ -13,6 +13,7 @@ forgetting to set something.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from typing import Self
 
 from telecom_mcp.domain.errors import ConfigurationError
@@ -49,6 +50,14 @@ class GuardrailPolicy:
     write_actions_per_case: int = 5
     action_budget_window_s: float = 3_600.0
 
+    # --- Business sanity ---
+    #: How far ahead a callback may be booked. A date beyond this is a typo in the
+    #: year, not a customer planning ahead.
+    callback_horizon_days: int = 90
+    #: The operational refund ceiling. The contract caps an autonomous refund at 5.00
+    #: and is frozen for v1; this can be lowered per environment without touching it.
+    refund_ceiling: Decimal = Decimal("5.00")
+
     # --- Output ---
     max_output_bytes: int = 262_144
     output_secret_scan: bool = True
@@ -70,6 +79,10 @@ class GuardrailPolicy:
             problems.append(f"rate_limit_burst must not be negative, got {self.rate_limit_burst}")
         if self.action_budget_window_s <= 0:
             problems.append("action_budget_window_s must be positive")
+        if self.callback_horizon_days <= 0:
+            problems.append("callback_horizon_days must be positive")
+        if self.refund_ceiling <= Decimal("0"):
+            problems.append("refund_ceiling must be positive")
         if self.max_string_length > self.max_argument_bytes:
             problems.append(
                 "max_string_length exceeds max_argument_bytes, so the string limit can "
@@ -110,6 +123,8 @@ class GuardrailPolicy:
             "rate_limit_burst": self.rate_limit_burst,
             "write_actions_per_case": self.write_actions_per_case,
             "action_budget_window_s": self.action_budget_window_s,
+            "callback_horizon_days": self.callback_horizon_days,
+            "refund_ceiling": str(self.refund_ceiling),
             "max_output_bytes": self.max_output_bytes,
             "output_secret_scan": self.output_secret_scan,
         }
