@@ -26,6 +26,7 @@ from telecom_mcp.adapters.idempotency import (
 from telecom_mcp.adapters.reliability import CircuitBreaker, RetryPolicy, call_with_reliability
 from telecom_mcp.domain.errors import (
     ErrorEnvelope,
+    GuardrailBlockedError,
     InternalError,
     OverloadedError,
     RateLimitedError,
@@ -34,6 +35,9 @@ from telecom_mcp.domain.errors import (
 from telecom_mcp.domain.ports import Clock, Jitter
 from telecom_mcp.domain.schemas import ToolOutput
 from telecom_mcp.domain.tools import ToolSpec
+from telecom_mcp.guardrails.decision import GuardrailViolation
+from telecom_mcp.guardrails.pipeline import GuardedCall, GuardrailPipeline
+from telecom_mcp.guardrails.policy import GuardrailPolicy
 from telecom_mcp.observability.logging import get_logger, request_context
 from telecom_mcp.observability.metrics import Metrics
 from telecom_mcp.observability.redaction import Redactor
@@ -80,6 +84,7 @@ class ToolExecutor:
         jitter: Jitter,
         retry_policy: RetryPolicy,
         breaker: CircuitBreaker,
+        guardrails: GuardrailPipeline | None = None,
         max_concurrent_calls: int = 100,
         tool_timeout_s: float = 10.0,
     ) -> None:
@@ -95,10 +100,17 @@ class ToolExecutor:
         self._breaker = breaker
         self._semaphore = asyncio.Semaphore(max_concurrent_calls)
         self._tool_timeout_s = tool_timeout_s
+        # A control with an off switch defaults to on. An executor built without a
+        # pipeline gets the strict policy rather than no policy.
+        self._guardrails = guardrails or GuardrailPipeline(GuardrailPolicy(), clock)
 
     @property
     def authorizer(self) -> Authorizer:
         return self._authorizer
+
+    @property
+    def guardrails(self) -> GuardrailPipeline:
+        return self._guardrails
 
     async def execute(self, request: ToolRequest) -> ToolResult:
         """Run one tool call. Never raises."""
@@ -109,13 +121,22 @@ class ToolExecutor:
             except AuthorizationDeniedError as denied:
                 return self._record_denial(request, denied, started)
 
+            guarded = _guarded(call)
+            decision = self._guardrails.check_input(guarded)
+            if decision.violation is not None:
+                return self._record_guardrail_block(call, decision.violation, started, executed=False)
+
             try:
                 return await self._execute_authorized(call, started)
             except TelecomMCPError as error:
+                # Nothing happened, so a reserved action is given back rather than
+                # counted against a customer who never got their write.
+                self._guardrails.release(guarded)
                 return self._record_failure(call, error, started)
             except Exception:
                 # The message is deliberately dropped: an unexpected exception is the
                 # most likely thing to carry something that must not be shown.
+                self._guardrails.release(guarded)
                 logger.exception("tool_call_crashed", tool=call.spec.name)
                 return self._record_failure(call, InternalError(operation=call.spec.name), started)
 
@@ -261,6 +282,66 @@ class ToolExecutor:
         )
         return ToolResult(error=denial.error.envelope(request.correlation_id))
 
+    def _record_guardrail_block(
+        self,
+        call: AuthorizedCall,
+        violation: GuardrailViolation,
+        started: float,
+        *,
+        executed: bool,
+    ) -> ToolResult:
+        """Record one guardrail refusal, on the way in or on the way out.
+
+        ``executed`` is the difference that matters to whoever reads the record later:
+        an input refusal means nothing happened, and an output refusal means the write
+        landed and the caller was not told what it produced.
+        """
+        duration_ms = (self._clock.monotonic() - started) * 1000
+        error = GuardrailBlockedError(
+            str(violation),
+            operation=call.spec.name,
+            stage=str(violation.stage),
+            rule=violation.rule,
+        )
+        # The rule name is deliberately not a metric label: rules are added often and
+        # a label whose value set grows with the code is how a series count explodes.
+        self._metrics.increment(
+            "tool_calls_total",
+            tool=call.spec.name,
+            outcome="guardrail_blocked",
+            code=str(error.code),
+        )
+        self._metrics.increment(
+            "guardrail_decisions_total",
+            tool=call.spec.name,
+            stage=str(violation.stage),
+            outcome="blocked",
+        )
+        self._audit.record(
+            tool=call.spec.name,
+            decision=Decision.REJECTED if not executed else Decision.ACCEPTED,
+            outcome=Outcome.NOT_EXECUTED if not executed else Outcome.FAILURE,
+            correlation_id=call.correlation_id,
+            case_id=call.case_id,
+            authorization_result="allowed",
+            action_requested=call.arguments.model_dump(mode="json"),
+            cx_id=call.cx_id,
+            tenant_id=call.identity.tenant_id,
+            role=str(call.identity.role),
+            action_executed=executed,
+            failure_reason=violation.reason,
+            duration_ms=duration_ms,
+            extra={"guardrail_stage": str(violation.stage), "guardrail_rule": violation.rule},
+        )
+        logger.warning(
+            "tool_call_guardrail_blocked",
+            tool=call.spec.name,
+            stage=str(violation.stage),
+            rule=violation.rule,
+            executed=executed,
+        )
+        return ToolResult(error=error.envelope(call.correlation_id))
+
     def _record_success(self, call: AuthorizedCall, started: float, *, deduplicated: bool) -> None:
         outcome = Outcome.DEDUPLICATED if deduplicated else Outcome.SUCCESS
         duration_ms = (self._clock.monotonic() - started) * 1000
@@ -313,6 +394,21 @@ class ToolExecutor:
         )
         logger.error("tool_call_failed", tool=call.spec.name, code=str(error.code))
         return ToolResult(error=error.envelope(call.correlation_id))
+
+
+def _guarded(call: AuthorizedCall) -> GuardedCall:
+    """Project an authorized call down to what a guardrail is allowed to see.
+
+    The token is dropped here on purpose. A guardrail has no use for a credential, and
+    the cheapest way to guarantee it never logs one is to never hand it one.
+    """
+    return GuardedCall(
+        spec=call.spec,
+        arguments=call.arguments.model_dump(mode="json"),
+        tenant_id=call.identity.tenant_id,
+        subject=call.identity.subject,
+        case_id=call.case_id,
+    )
 
 
 def _argument_cx_id(request: ToolRequest) -> str | None:
