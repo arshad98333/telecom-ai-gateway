@@ -10,59 +10,135 @@ It is a gateway, not a business logic system. It never connects to a database; i
 the telecom middleware API, which is what keeps validation, authorization and auditing
 in one place.
 
-## Requirements
+## Quick start
+
+Three commands, no credentials, no database, no account. The default configuration
+serves a committed fixture dataset through the real security kernel, so what you get is
+a genuine tool server with genuine authorization — refusals and all — over fake
+customers.
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e TELECOM_MCP_HTTP_HOST=0.0.0.0 \
+  -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes \
+  ghcr.io/arshad98333/telecom-mcp-tools:latest
+```
+
+```bash
+curl -s localhost:8080/readyz
+```
+
+Or from PyPI, if you would rather not use Docker:
+
+```bash
+pip install telecom-mcp-tools[http]
+export TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes
+telecom-mcp serve --transport http
+```
+
+`uvx --from 'telecom-mcp-tools[http]' telecom-mcp serve --transport http` does the same
+without installing anything permanently.
+
+`GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is the Prometheus
+exposition, and `POST /mcp/` is the MCP endpoint — note the trailing slash; without it
+the server answers `307` and most clients will not re-POST to the redirect.
+
+To call a tool you need a token. In the default configuration you can mint one:
+
+```bash
+export TELECOM_MCP_ACCESS_TOKEN="$(python scripts/mint_dev_token.py)"
+```
+
+## Running it against your own systems
+
+Nothing in this package is specific to one company's tenant. Eight variables point it
+at yours; everything else has a working default.
+
+```bash
+cp .env.example .env      # then edit these:
+
+TELECOM_MCP_BACKEND=http
+TELECOM_MCP_BACKEND_BASE_URL=https://your-api.internal/api/v1
+
+TELECOM_MCP_IDENTITY_VERIFIER=jwks
+TELECOM_MCP_JWKS_URL=https://your-tenant.eu.auth0.com/.well-known/jwks.json
+TELECOM_MCP_JWT_ISSUER=https://your-tenant.eu.auth0.com/
+TELECOM_MCP_JWT_AUDIENCE=https://your-api-identifier
+TELECOM_MCP_CLAIM_NAMESPACE=https://your-company.example/
+
+TELECOM_MCP_SERVICE_IDENTITY_SOURCE=client_credentials
+TELECOM_MCP_SERVICE_CLIENT_ID=...
+TELECOM_MCP_SERVICE_CLIENT_SECRET=...
+```
+
+```bash
+docker compose up -d
+```
+
+Then `telecom-mcp check-config` prints the resolved settings with secrets replaced, or
+exits `78` naming every problem at once.
+
+Four things that catch people out, all of them enforced rather than documented:
+
+- **The issuer keeps its trailing slash; the JWKS URL does not.** That asymmetry is
+  exact, and getting it wrong produces `token could not be verified` with an otherwise
+  perfect setup.
+- **The claim namespace must match** what your identity provider's post-login action
+  writes and what your backing API reads. All three must agree, and it must end with
+  `/`. The three claims read are `<namespace>tenant_id`, `<namespace>role` and
+  `<namespace>cx_id`.
+- **Permissions are read from the `permissions` claim first**, falling back to `scope`.
+  With Auth0 that means RBAC enabled on the API *and* "Add Permissions in the Access
+  Token"; without the second setting a correctly-assigned role still gets nothing.
+- **The token this server verifies is forwarded to your API unchanged**, so both must
+  accept the same audience. An OIDC access token carries exactly one, which means one
+  API registration in front of both services, not two.
+
+Your API is expected to accept a bearer token in `Authorization`, this service's own
+credential in `X-Service-Authorization`, and to expose the endpoints listed in
+`docs/architecture.md`. The scope and role vocabulary lives in
+`src/telecom_mcp/domain/permissions.py`; change it there and the tool contract follows.
+
+## Deploying it
+
+Branch-based delivery to Azure Container Apps, built once and promoted:
+
+```
+feat/*  ──PR──►  main  ──build──►  image@sha256:…  ──►  QA  ──approval──►  PROD
+```
+
+The image is pinned by digest the moment it is built, so production runs the bytes QA
+ran; approving a release chooses when, not what. The gate is a GitHub Environment
+reviewer on `prod`, and rollback is a revision weight.
+
+`infra/azure/main.bicep` is the whole deployment — Container App, managed identity,
+Key Vault references, probes and scale rules. `infra/azure/README.md` has the one-time
+bootstrap: a shared registry, a resource group and vault per environment, and OIDC
+federation so no Azure credential is ever stored in GitHub.
+
+## Requirements for development
 
 | Tool | Version | Why |
 |---|---|---|
-| Python | 3.12 (3.11 also supported) | pinned in `.python-version` |
+| Python | 3.12 (3.11 and 3.13 also supported) | pinned in `.python-version` |
 | [uv](https://docs.astral.sh/uv/) | 0.12.3 or newer | dependency resolution and the lock file |
-| Docker | 24 or newer | only for `make docker-build` and the container smoke test |
+| Docker | 24 or newer | only for the image and the container smoke test |
 | GNU Make | 4.3 or newer | one command per action |
-
-Nothing else. No database, no message broker, no accounts, no network — the default
-configuration runs against a committed fixture backend.
-
-Working in VS Code? Open `../telecom.code-workspace` and follow
-[`../docs/RUN-IN-VSCODE.md`](../docs/RUN-IN-VSCODE.md).
-
-## Install
 
 ```bash
 git clone <this repository>
 cd telecom-mcp
 make install
-```
-
-## Test
-
-```bash
 make test
 ```
 
-A pass looks like `367 passed in 5s`. The suite runs with the network disabled, with no
+A pass looks like `376 passed`. The suite runs with the network disabled, with no
 credentials and no `.env` file, and no test is skipped for missing configuration. It
 also passes in random order — `make test` randomises it every run.
 
 ```bash
 make check   # exactly what CI runs: format, lint, types, tests, coverage gate
 ```
-
-## Run
-
-```bash
-# stdio, for a local MCP client. The token comes from the environment.
-export TELECOM_MCP_LOCAL_VERIFIER_SECRET=dev-signing-secret-at-least-32-bytes
-export TELECOM_MCP_ACCESS_TOKEN="$(python scripts/mint_dev_token.py)"
-make dev
-
-# streamable HTTP, for the voice agent. The token comes from the Authorization header.
-make serve-http
-curl -s localhost:8080/readyz | python -m json.tool
-```
-
-You should see a JSON readiness report with `"status": "healthy"` and one component per
-dependency. `GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is
-the Prometheus exposition format, and `POST /mcp` is the MCP endpoint.
 
 ## Configuration
 
@@ -86,6 +162,10 @@ missing or malformed value prints one message naming every problem and exits 78.
 | `JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE` | when `IDENTITY_VERIFIER=jwks` | — | Where keys come from and what a token must claim. |
 | `LOCAL_VERIFIER_SECRET` | when `IDENTITY_VERIFIER=local` | — | At least 32 bytes. |
 | `JWKS_CACHE_TTL_S` | no | `600` | How long signing keys are cached. |
+| `CLAIM_NAMESPACE` | no | `https://telecom.example/` | Prefix on the `tenant_id`, `role` and `cx_id` claims. Must end with `/` and match your provider and your API. |
+| `SERVICE_IDENTITY_SOURCE` | no | `static` | `static` sends `BACKEND_API_KEY` unchanged; `client_credentials` fetches a token and refreshes it before expiry. Production requires the latter. |
+| `SERVICE_TOKEN_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | when `SERVICE_IDENTITY_SOURCE=client_credentials` | — | Where this service gets its own credential, and who it is. |
+| `SERVICE_TOKEN_AUDIENCE` | no | `JWT_AUDIENCE` | The audience that credential is minted for. |
 | `TOOL_TIMEOUT_S` | no | `10.0` | Total budget for one tool call, retries included. |
 | `RETRY_ATTEMPTS` | no | `2` | Retries after the first attempt, on safe operations only. |
 | `RETRY_BASE_DELAY_S` | no | `0.2` | First backoff step; doubles, capped, jittered. |
