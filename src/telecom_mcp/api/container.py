@@ -34,8 +34,9 @@ from telecom_mcp.domain.ports import (
     SystemJitter,
     UUIDGenerator,
 )
+from telecom_mcp.guardrails.pipeline import GuardrailPipeline
 from telecom_mcp.observability.health import HealthChecker
-from telecom_mcp.observability.logging import configure_logging
+from telecom_mcp.observability.logging import configure_logging, get_logger
 from telecom_mcp.observability.metrics import Metrics
 from telecom_mcp.observability.redaction import Redactor, derive_pseudonym_key
 from telecom_mcp.security.audit import AuditLog, AuditSink, FileSink, StdoutSink
@@ -46,6 +47,8 @@ from telecom_mcp.security.service_token import (
     StaticServiceToken,
 )
 from telecom_mcp.security.verifier import JwksVerifier, LocalVerifier, TokenVerifier
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -58,6 +61,7 @@ class Application:
     metrics: Metrics
     backend: TelecomBackend
     idempotency: IdempotencyStore
+    guardrails: GuardrailPipeline
 
     async def aclose(self) -> None:
         closer = getattr(self.backend, "aclose", None)
@@ -96,6 +100,7 @@ def build_application(
         id_generator=id_generator,
     )
     authorizer = Authorizer(verifier=_build_verifier(settings, clock), ownership=ownership)
+    guardrails = GuardrailPipeline(settings.guardrail_policy(), clock)
     executor = ToolExecutor(
         authorizer=authorizer,
         backend=chosen_backend,
@@ -114,6 +119,7 @@ def build_application(
             reset_timeout_s=settings.breaker_reset_timeout_s,
             name="telecom_middleware",
         ),
+        guardrails=guardrails,
         max_concurrent_calls=settings.max_concurrent_tool_calls,
         tool_timeout_s=settings.tool_timeout_s,
     )
@@ -122,6 +128,8 @@ def build_application(
     health.register("telecom_middleware", chosen_backend.ping)
     health.register("idempotency_store", idempotency.ping)
 
+    logger.info("guardrail_policy_loaded", **guardrails.policy.describe())
+
     return Application(
         settings=settings,
         executor=executor,
@@ -129,6 +137,7 @@ def build_application(
         metrics=metrics,
         backend=chosen_backend,
         idempotency=idempotency,
+        guardrails=guardrails,
     )
 
 
