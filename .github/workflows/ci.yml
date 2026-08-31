@@ -47,7 +47,7 @@ jobs:
       - name: Fail if the lock file is out of date
         run: uv lock --check
 
-      - name: Format, lint, types, tests and coverage
+      - name: Format, lint, types, tests, coverage and generated assets
         run: make check
 
       - name: Upload coverage

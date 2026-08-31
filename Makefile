@@ -16,7 +16,7 @@ export UV_PROJECT_ENVIRONMENT
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev serve-http token test test-fast test-int lint format typecheck check cov build clean audit docker-build docker-smoke
+.PHONY: help install dev serve-http token test test-fast test-int lint format typecheck check cov build clean audit docker-build docker-smoke observability observability-check
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-13s %s\n", $$1, $$2}'
@@ -57,7 +57,15 @@ audit: ## Fail on known-vulnerable dependencies
 token: ## Mint a development token for the local verifier
 	@$(call run_with_env,python scripts/mint_dev_token.py)
 
-check: lint typecheck cov ## Exactly what CI runs
+observability: ## Regenerate the dashboards and alert rules from the catalogues
+	cd "$(CURDIR)" && $(UV) run python scripts/generate_observability.py
+
+observability-check: ## Fail if the committed dashboards no longer match the catalogues
+	cd "$(CURDIR)" && $(UV) run python scripts/generate_observability.py
+	cd "$(CURDIR)" && git diff --exit-code --stat -- infra/observability \
+	  || { echo "infra/observability is stale; run 'make observability' and commit"; exit 1; }
+
+check: lint typecheck cov observability-check ## Exactly what CI runs
 
 build: ## Produce the deployable artifact
 	cd "$(CURDIR)" && $(UV) build
