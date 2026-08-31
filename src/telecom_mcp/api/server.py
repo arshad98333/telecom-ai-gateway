@@ -11,6 +11,7 @@ worse than one.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from mcp import types
@@ -29,6 +30,19 @@ from telecom_mcp.security.verifier import TokenVerificationError
 logger = get_logger(__name__)
 
 SERVER_NAME = "telecom-mcp-tools"
+
+
+class ToolRefusedError(Exception):
+    """A refusal on its way to the MCP transport.
+
+    Carries the same document ``call_tool_for_caller`` returns, serialised, so a caller
+    reading the error text gets the error code, the operation and the correlation id
+    rather than a sentence about schema validation.
+    """
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        super().__init__(json.dumps(payload, indent=2, default=str))
 
 
 def describe(spec: ToolSpec) -> types.Tool:
@@ -72,7 +86,15 @@ class TelecomMCPServer:
             return await self.list_tools_for_caller()
 
         async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-            return await self.call_tool_for_caller(name, arguments)
+            result = await self.call_tool_for_caller(name, arguments)
+            if "error" in result:
+                # The SDK validates any dictionary a handler returns against the tool's
+                # outputSchema and rejects a refusal as a malformed *success*, replacing
+                # it with "Output validation error". Raising is how the SDK is told the
+                # call failed; it renders the exception's text as an isError result, so
+                # the agent still receives the whole refusal document, unaltered.
+                raise ToolRefusedError(result)
+            return result
 
         self.server.list_tools()(list_tools)  # type: ignore[no-untyped-call]
         self.server.call_tool(validate_input=False)(call_tool)
