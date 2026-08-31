@@ -1,0 +1,49 @@
+{
+  // --- Python -----------------------------------------------------------------
+  // The interpreter is the .venv that `uv sync` creates in this folder. VS Code finds
+  // it on its own; if it does not, run "Python: Select Interpreter" and pick .venv.
+  "python.terminal.activateEnvInCurrentTerminal": true,
+  "python.analysis.typeCheckingMode": "off", // mypy is the checker here, not Pylance
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["tests"],
+
+  // --- Formatting and linting: the same tools CI runs -------------------------
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports.ruff": "explicit",
+      "source.fixAll.ruff": "explicit"
+    }
+  },
+  "ruff.importStrategy": "fromEnvironment",
+  "mypy-type-checker.importStrategy": "fromEnvironment",
+  "mypy-type-checker.reportingScope": "workspace",
+
+  // --- Editor -----------------------------------------------------------------
+  "editor.rulers": [100],
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.associations": {
+    "*.mongodb.js": "javascript",
+    ".env.example": "dotenv"
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/.mypy_cache": true,
+    "**/.ruff_cache": true,
+    "**/*.egg-info": true
+  },
+
+  // --- REST Client -------------------------------------------------------------
+  // requests.http reads DEV_TOKEN from .env, which the "Mint a dev token" task fills
+  // in. No pasting a token into a file that then gets committed by accident.
+  "rest-client.environmentVariables": {
+    "$shared": {
+      "baseUrl": "http://127.0.0.1:9000"
+    }
+  },
+  "rest-client.previewOption": "exchange"
+}

@@ -1,0 +1,91 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Breakpoints work in this one. Start here.
+      "name": "API: run (breakpoints work)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_middleware.api.cli",
+      "args": ["serve"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      // Reload runs the app in a child process, and the debugger stays attached to the
+      // parent - so breakpoints do not hit. Use this while editing, the one above while
+      // investigating.
+      "name": "API: run with reload (no breakpoints)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_middleware.api.cli",
+      "args": ["serve", "--reload"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "API: against the in-memory store (no database)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_middleware.api.cli",
+      "args": ["serve"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        // Nothing to set up and nothing to break: useful for reading the code with the
+        // debugger, and for checking a change before you point it at real data.
+        "TELECOM_MW_STORE": "memory",
+        "TELECOM_MW_LOCAL_VERIFIER_SECRET": "in-memory-debug-secret-long-enough-x",
+        "TELECOM_MW_JWT_AUDIENCE": "https://api.telecom.example/v1",
+        "TELECOM_MW_CHANGE_STREAM_ENABLED": "false"
+      }
+    },
+    {
+      "name": "Command: check-store",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_middleware.api.cli",
+      "args": ["check-store"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Command: seed",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_middleware.api.cli",
+      "args": ["seed"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Tests: the file I am looking at",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-vv", "-p", "no:randomly"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Tests: all of them",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

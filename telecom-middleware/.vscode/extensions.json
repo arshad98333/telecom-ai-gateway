@@ -1,0 +1,17 @@
+{
+  // Prompted once when the folder is opened. Nothing here is required to run the
+  // project; each one removes a step you would otherwise do by hand.
+  "recommendations": [
+    "ms-python.python",              // interpreters, the test explorer, the debugger
+    "ms-python.debugpy",             // the debug adapter the launch configurations use
+    "charliermarsh.ruff",            // the same formatter and linter CI runs
+    "ms-python.mypy-type-checker",   // the same type checker CI runs, inline
+    "mongodb.mongodb-vscode",        // browse Atlas and run the .mongodb.js playgrounds
+    "humao.rest-client"              // send requests.http without leaving the editor
+  ],
+  "unwantedRecommendations": [
+    // Two formatters fighting over the same file is a bad afternoon. Ruff formats here.
+    "ms-python.black-formatter",
+    "ms-python.autopep8"
+  ]
+}
