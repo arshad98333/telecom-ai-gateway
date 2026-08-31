@@ -1,0 +1,19 @@
+# Everything TestSprite or a run produces. The sources are tests/, specs/ and the
+# scripts; anything below is regenerated and goes stale the moment a tunnel rotates.
+
+# Stamped copies of the tests, written by stamp_target_url.py.
+build/
+
+# The CLI's own scratch directory, including downloaded failure bundles.
+.testsprite/
+.testsprite-state.json
+
+# Run and validation output.
+runs-*.json
+tests-*.json
+validation-result.json
+bundle-*/
+
+# Project ids and tunnel URLs for the current session. Not secret, but stale within
+# hours and misleading when it is.
+vars.ps1

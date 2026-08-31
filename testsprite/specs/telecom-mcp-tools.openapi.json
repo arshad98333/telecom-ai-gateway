@@ -1,0 +1,316 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "telecom-mcp-tools",
+    "version": "1.0.0",
+    "description": "The MCP tool server's HTTP surface: the streamable-HTTP MCP transport plus the operational endpoints. Every tool call is authorized by the eight-stage kernel, passed through the guardrail pipeline on the way in and out, and written to a tamper-evident audit trail.\n\nAuthentication is a bearer token verified against the tenant's JWKS (or a local HS256 secret in development). The token carries the tenant, the role and the customer reference in namespaced claims."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8080",
+      "description": "Local"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Liveness",
+        "description": "Answers whether the process can execute code. Consults nothing external, so one backend blip cannot restart every replica.",
+        "security": [],
+        "tags": [
+          "operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "Readiness",
+        "description": "Answers whether this instance can serve. Probes the middleware, the idempotency store, and the identity provider when a tenant is configured. 503 when a required dependency is down.",
+        "security": [],
+        "tags": [
+          "operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "503": {
+            "description": "A required dependency is down"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus exposition",
+        "description": "Four series: tool calls, durations, backend attempts, guardrail decisions.",
+        "security": [],
+        "tags": [
+          "operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/kpi": {
+      "get": {
+        "summary": "Indicators and objectives",
+        "description": "The KPI catalogue and the SLO verdicts, derived from the same registry /metrics renders. Returns 200 even when an objective is breached: a probe pointed here must not restart the container.",
+        "security": [],
+        "tags": [
+          "operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/mcp/": {
+      "post": {
+        "summary": "MCP JSON-RPC over streamable HTTP",
+        "description": "Stateless JSON-RPC. Send `initialize`, then `tools/list`, then `tools/call`.\n\nThe transport is mounted at /mcp and answers on /mcp/; a POST to /mcp returns 307. Clients must follow the redirect.\n\nSend `Accept: application/json, text/event-stream`.\n\nA refused call still returns HTTP 200 with a JSON-RPC result carrying an error envelope - the transport succeeded, the call did not. Assert on the envelope, not the status code.",
+        "tags": [
+          "mcp"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "jsonrpc",
+                  "id",
+                  "method"
+                ],
+                "properties": {
+                  "jsonrpc": {
+                    "type": "string",
+                    "const": "2.0"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "initialize",
+                      "tools/list",
+                      "tools/call"
+                    ]
+                  },
+                  "params": {
+                    "type": "object"
+                  }
+                }
+              },
+              "examples": {
+                "initialize": {
+                  "summary": "initialize",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                      "protocolVersion": "2025-06-18",
+                      "capabilities": {},
+                      "clientInfo": {
+                        "name": "testsprite",
+                        "version": "1"
+                      }
+                    }
+                  }
+                },
+                "tools_list": {
+                  "summary": "tools/list - only the tools this identity may call",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/list",
+                    "params": {}
+                  }
+                },
+                "get_customer_account": {
+                  "summary": "get_customer_account (read_only, scope account:read)",
+                  "description": "Get the authenticated customer's account status, type and open case count. Read-only.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: False. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "get_customer_account",
+                      "arguments": {
+                        "cx_id": "CX-1234"
+                      }
+                    }
+                  }
+                },
+                "get_active_services": {
+                  "summary": "get_active_services (read_only, scope service:read)",
+                  "description": "List the customer's active services with plan name and monthly price.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: False. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "get_active_services",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "limit": 5
+                      }
+                    }
+                  }
+                },
+                "get_order_status": {
+                  "summary": "get_order_status (read_only, scope order:read)",
+                  "description": "Get the state of one order, or the customer's most recent orders.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: False. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "get_order_status",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "order_id": "REF-0001",
+                        "limit": 5
+                      }
+                    }
+                  }
+                },
+                "get_invoice_summary": {
+                  "summary": "get_invoice_summary (read_only, scope billing:read)",
+                  "description": "Get invoice totals, due dates and outstanding balance. Amounts only, no line items.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: False. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "get_invoice_summary",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "invoice_id": "INV-0001",
+                        "limit": 5
+                      }
+                    }
+                  }
+                },
+                "get_network_status": {
+                  "summary": "get_network_status (read_only, scope network:read)",
+                  "description": "Check for an outage or planned maintenance affecting the customer's area.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: False. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "get_network_status",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "service_id": "REF-0001"
+                      }
+                    }
+                  }
+                },
+                "create_support_ticket": {
+                  "summary": "create_support_ticket (low_risk_write, scope ticket:write)",
+                  "description": "Raise a support ticket. Requires an idempotency key; repeating a key returns the original ticket.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: True. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "create_support_ticket",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "category": "billing",
+                        "subject": "<subject>",
+                        "description": "<description>",
+                        "priority": "low",
+                        "idempotency_key": "idem-key-0001"
+                      }
+                    }
+                  }
+                },
+                "schedule_callback": {
+                  "summary": "schedule_callback (low_risk_write, scope callback:write)",
+                  "description": "Book a callback in a named window. Requires an idempotency key.\n\nTimeout 10.0s. Retry-safe: True. Idempotency key required: True. Human approval required: False.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "schedule_callback",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "preferred_date": "2026-09-15T09:00:00+00:00",
+                        "window": "morning",
+                        "reason": "<reason>",
+                        "idempotency_key": "idem-key-0001"
+                      }
+                    }
+                  }
+                },
+                "request_refund_approval": {
+                  "summary": "request_refund_approval (restricted, scope refund:request)",
+                  "description": "Submit a refund request for supervisor approval. Moves no money. Requires an idempotency key.\n\nTimeout 10.0s. Retry-safe: False. Idempotency key required: True. Human approval required: True.",
+                  "value": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                      "name": "request_refund_approval",
+                      "arguments": {
+                        "cx_id": "CX-1234",
+                        "invoice_id": "INV-0001",
+                        "amount": "4.50",
+                        "currency": "GBP",
+                        "reason": "billing_error",
+                        "justification": "Billed twice for the same month; the duplicate is on invoice INV-0001.",
+                        "idempotency_key": "idem-key-0001"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A JSON-RPC response. Check the envelope, not the status."
+          },
+          "307": {
+            "description": "POSTed to /mcp instead of /mcp/. Follow the redirect."
+          },
+          "401": {
+            "description": "No bearer token, or one that does not verify."
+          }
+        }
+      }
+    }
+  }
+}
