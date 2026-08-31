@@ -35,6 +35,7 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_KEY_REQUIRED = "idempotency_key_required"
     IDEMPOTENCY_KEY_REUSED = "idempotency_key_reused"
     UNSUPPORTED_CONTRACT_VERSION = "unsupported_contract_version"
+    GUARDRAIL_BLOCKED = "guardrail_blocked"
 
     # Downstream
     BACKEND_UNAVAILABLE = "backend_unavailable"
@@ -178,6 +179,31 @@ class IdempotencyKeyReusedError(InvalidInputError):
 class UnsupportedContractVersionError(TelecomMCPError):
     code = ErrorCode.UNSUPPORTED_CONTRACT_VERSION
     public_message = "The requested tool contract version is not supported."
+
+
+class GuardrailBlockedError(TelecomMCPError):
+    """A guardrail refused the call. Carries the stage for the audit record only.
+
+    The public message never names the stage. Two different messages for two different
+    controls would tell whoever is probing which one they tripped, and therefore which
+    one to work around; one message tells them nothing.
+    """
+
+    code = ErrorCode.GUARDRAIL_BLOCKED
+    public_message = "The request was refused by a safety control."
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        operation: str = "unknown",
+        stage: str = "unknown",
+        rule: str = "unknown",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.stage = stage
+        self.rule = rule
+        super().__init__(message, operation=operation, details=details or {})
 
 
 # --- Downstream ---------------------------------------------------------------------
