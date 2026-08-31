@@ -1,0 +1,145 @@
+{
+  "_comment": "Small, realistic seed data. Committed so any developer gets a usable local system with one command, and so the fake can return the same shapes the middleware API returns.",
+  "tenants": {
+    "tenant-eu-1": {
+      "customers": {
+        "CX-1234": {
+          "account": {
+            "cx_id": "CX-1234",
+            "account_status": "active",
+            "account_type": "consumer",
+            "display_name": "J. Okonkwo",
+            "customer_since": "2021-03-14T00:00:00Z",
+            "billing_postcode_suffix": "4AB",
+            "open_case_count": 1
+          },
+          "services": [
+            {
+              "service_id": "SVC-001",
+              "kind": "mobile",
+              "plan_name": "Unlimited 5G",
+              "status": "active",
+              "monthly_price": "24.00",
+              "currency": "GBP",
+              "contract_end_date": "2027-03-14T00:00:00Z"
+            },
+            {
+              "service_id": "SVC-002",
+              "kind": "broadband",
+              "plan_name": "Fibre 500",
+              "status": "active",
+              "monthly_price": "39.00",
+              "currency": "GBP",
+              "contract_end_date": null
+            }
+          ],
+          "orders": [
+            {
+              "order_id": "ORD-9001",
+              "state": "dispatched",
+              "placed_at": "2026-08-20T09:15:00Z",
+              "expected_by": "2026-09-02T00:00:00Z",
+              "summary": "Replacement router"
+            },
+            {
+              "order_id": "ORD-8800",
+              "state": "delivered",
+              "placed_at": "2026-05-02T14:00:00Z",
+              "expected_by": "2026-05-06T00:00:00Z",
+              "summary": "SIM replacement"
+            }
+          ],
+          "invoices": [
+            {
+              "invoice_id": "INV-2026-08",
+              "state": "due",
+              "issued_on": "2026-08-01T00:00:00Z",
+              "due_on": "2026-09-01T00:00:00Z",
+              "total": "63.00",
+              "outstanding": "63.00",
+              "currency": "GBP"
+            },
+            {
+              "invoice_id": "INV-2026-07",
+              "state": "paid",
+              "issued_on": "2026-07-01T00:00:00Z",
+              "due_on": "2026-08-01T00:00:00Z",
+              "total": "63.00",
+              "outstanding": "0.00",
+              "currency": "GBP"
+            }
+          ],
+          "network": {
+            "state": "degraded",
+            "area_reference": "AREA-EDI-04",
+            "incident_id": "INC-5512",
+            "started_at": "2026-08-30T06:00:00Z",
+            "estimated_resolution": "2026-08-30T18:00:00Z",
+            "affected_services": ["broadband"],
+            "message": "Engineers are working on a fault affecting broadband in this area."
+          }
+        },
+        "CX-5555": {
+          "account": {
+            "cx_id": "CX-5555",
+            "account_status": "suspended",
+            "account_type": "business",
+            "display_name": "Rivera Logistics Ltd",
+            "customer_since": "2019-11-02T00:00:00Z",
+            "billing_postcode_suffix": "9ZQ",
+            "open_case_count": 0
+          },
+          "services": [],
+          "orders": [],
+          "invoices": [
+            {
+              "invoice_id": "INV-2026-06",
+              "state": "overdue",
+              "issued_on": "2026-06-01T00:00:00Z",
+              "due_on": "2026-07-01T00:00:00Z",
+              "total": "410.00",
+              "outstanding": "410.00",
+              "currency": "GBP"
+            }
+          ],
+          "network": {
+            "state": "operational",
+            "area_reference": "AREA-MAN-11",
+            "incident_id": null,
+            "started_at": null,
+            "estimated_resolution": null,
+            "affected_services": [],
+            "message": "No known issues in this area."
+          }
+        }
+      }
+    },
+    "tenant-us-9": {
+      "customers": {
+        "CX-1234": {
+          "account": {
+            "cx_id": "CX-1234",
+            "account_status": "active",
+            "account_type": "consumer",
+            "display_name": "Different Tenant, Same Reference",
+            "customer_since": "2024-01-01T00:00:00Z",
+            "billing_postcode_suffix": "0AA",
+            "open_case_count": 0
+          },
+          "services": [],
+          "orders": [],
+          "invoices": [],
+          "network": {
+            "state": "operational",
+            "area_reference": "AREA-US-01",
+            "incident_id": null,
+            "started_at": null,
+            "estimated_resolution": null,
+            "affected_services": [],
+            "message": "No known issues in this area."
+          }
+        }
+      }
+    }
+  }
+}

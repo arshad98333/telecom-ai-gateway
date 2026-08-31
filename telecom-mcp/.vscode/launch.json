@@ -1,0 +1,78 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // The transport the voice agent uses. Start the middleware first, or every tool
+      // call comes back with the safe "temporarily unavailable" answer.
+      "name": "Tools: HTTP transport",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_mcp.api.cli",
+      "args": ["serve", "--transport", "http"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      // stdio speaks the MCP protocol on stdout, so anything printed there corrupts it.
+      // The token comes from TELECOM_MCP_ACCESS_TOKEN in .env.
+      "name": "Tools: stdio transport",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_mcp.api.cli",
+      "args": ["serve", "--transport", "stdio"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Tools: against the built-in fake backend",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_mcp.api.cli",
+      "args": ["serve", "--transport", "http"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        // No middleware, no database, no network. Useful for reading the tool layer
+        // with the debugger without standing anything else up.
+        "TELECOM_MCP_BACKEND": "fake",
+        "TELECOM_MCP_LOCAL_VERIFIER_SECRET": "fake-backend-debug-secret-long-enough",
+        "TELECOM_MCP_JWT_AUDIENCE": "telecom-mcp-tools"
+      }
+    },
+    {
+      "name": "Command: check-config",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "telecom_mcp.api.cli",
+      "args": ["check-config"],
+      "envFile": "${workspaceFolder}/.env",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Tests: the file I am looking at",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-vv", "-p", "no:randomly"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Tests: all of them",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+### The MCP tool server, over streamable HTTP — the surface the voice agent talks to.
+#
+# Needs the REST Client extension (humao.rest-client). Click "Send Request" above any
+# block, or put the cursor in one and press Ctrl+Alt+R.
+#
+# Before sending anything:
+#   1. Run the task "Mint a token (writes it into .env)" — or from a terminal:
+#         uv run --env-file .env python scripts/mint_dev_token.py --write-env
+#   2. Start both services: F5, "Everything: middleware + tools" from the workspace.
+#
+# Note the trailing slash on /mcp/. Without it the server answers 307 and most clients
+# will not re-POST to the redirect.
+
+@mcp = http://127.0.0.1:8080
+@token = {{$dotenv DEV_TOKEN}}
+@cx = CX-1234
+@otherCx = CX-9999
+
+### Liveness — answers even when the middleware is down
+GET {{mcp}}/healthz
+
+### Readiness — calls the middleware, so this is the one that says the chain is wired up
+GET {{mcp}}/readyz
+
+### Prometheus metrics
+GET {{mcp}}/metrics
+
+### ---------------------------------------------------------------------------
+### The catalogue. What a caller may invoke depends on what their token holds.
+### ---------------------------------------------------------------------------
+
+### Every tool this identity may call. A full customer token sees eight.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }
+
+### The same call with no token. An empty catalogue, not an error — whether a tool
+### name exists is itself information.
+POST {{mcp}}/mcp/
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }
+
+### ---------------------------------------------------------------------------
+### Reads. Each one reaches the middleware, which reaches MongoDB.
+### ---------------------------------------------------------------------------
+
+### Account details
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+  "params": { "name": "get_customer_account", "arguments": { "cx_id": "{{cx}}" } }
+}
+
+### Active services. Note monthly_price is a decimal here and minor units in the
+### database — the adapter translates rather than either side changing shape.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+  "params": { "name": "get_active_services", "arguments": { "cx_id": "{{cx}}", "limit": 5 } }
+}
+
+### Orders
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+  "params": { "name": "get_order_status", "arguments": { "cx_id": "{{cx}}", "limit": 5 } }
+}
+
+### Invoices. 6300 minor units in Atlas comes back as "63.00".
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+  "params": { "name": "get_invoice_summary", "arguments": { "cx_id": "{{cx}}", "limit": 5 } }
+}
+
+### Network status. The area comes from the customer's own service record, never from
+### the caller — a caller-supplied area would let anyone read any area's incident.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+  "params": { "name": "get_network_status", "arguments": { "cx_id": "{{cx}}" } }
+}
+
+### ---------------------------------------------------------------------------
+### Writes. Every one needs an idempotency key.
+### ---------------------------------------------------------------------------
+
+### Raise a ticket
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 8, "method": "tools/call",
+  "params": {
+    "name": "create_support_ticket",
+    "arguments": {
+      "cx_id": "{{cx}}",
+      "category": "billing",
+      "subject": "August bill looks high",
+      "description": "The August invoice is higher than usual and I would like it checked.",
+      "idempotency_key": "11111111-1111-4111-8111-111111111111"
+    }
+  }
+}
+
+### Send that again, unchanged. Same ticket_id, deduplicated true, and nothing reaches
+### the middleware the second time — the key is what makes a retried voice call safe.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+  "params": {
+    "name": "create_support_ticket",
+    "arguments": {
+      "cx_id": "{{cx}}",
+      "category": "billing",
+      "subject": "August bill looks high",
+      "description": "The August invoice is higher than usual and I would like it checked.",
+      "idempotency_key": "11111111-1111-4111-8111-111111111111"
+    }
+  }
+}
+
+### Schedule a callback. preferred_date must carry a timezone offset — a naive
+### datetime silently means "whatever zone the server happens to run in".
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+  "params": {
+    "name": "schedule_callback",
+    "arguments": {
+      "cx_id": "{{cx}}",
+      "preferred_date": "2026-09-15T09:00:00+01:00",
+      "window": "morning",
+      "reason": "Wants to talk through the August bill",
+      "idempotency_key": "22222222-2222-4222-8222-222222222222"
+    }
+  }
+}
+
+### Ask for a refund approval. Nothing moves money; a supervisor decides later.
+### The SOP caps an autonomous request at 5.00 — see the next block.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 11, "method": "tools/call",
+  "params": {
+    "name": "request_refund_approval",
+    "arguments": {
+      "cx_id": "{{cx}}",
+      "invoice_id": "INV-2026-08",
+      "amount": "4.50",
+      "currency": "GBP",
+      "reason": "billing_error",
+      "justification": "Charged twice for the same broadband upgrade in August.",
+      "idempotency_key": "33333333-3333-4333-8333-333333333333"
+    }
+  }
+}
+
+### The same request for 12.50. invalid_input — the cap is in the schema, so an
+### over-limit refund is refused before any code decides anything about it.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 16, "method": "tools/call",
+  "params": {
+    "name": "request_refund_approval",
+    "arguments": {
+      "cx_id": "{{cx}}",
+      "invoice_id": "INV-2026-08",
+      "amount": "12.50",
+      "currency": "GBP",
+      "reason": "billing_error",
+      "justification": "Over the autonomous limit, so this one needs a person.",
+      "idempotency_key": "44444444-4444-4444-8444-444444444444"
+    }
+  }
+}
+
+### ---------------------------------------------------------------------------
+### Refusals. Each one is a different control, and they fail differently on purpose.
+### ---------------------------------------------------------------------------
+
+### Another customer's account. cross_account_denied — refused before the middleware
+### is called at all, so no record is even looked up.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+  "params": { "name": "get_customer_account", "arguments": { "cx_id": "{{otherCx}}" } }
+}
+
+### A tool that does not exist. The same shape of refusal as one that does, so the
+### catalogue cannot be probed by watching which name errors differently.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+  "params": { "name": "exfiltrate_everything", "arguments": { "cx_id": "{{cx}}" } }
+}
+
+### A write with no idempotency key. Refused as invalid input rather than executed
+### once and hoped about.
+POST {{mcp}}/mcp/
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 14, "method": "tools/call",
+  "params": {
+    "name": "create_support_ticket",
+    "arguments": {
+      "cx_id": "{{cx}}",
+      "category": "billing",
+      "subject": "No key on this one",
+      "description": "This should be refused before anything is created anywhere."
+    }
+  }
+}
+
+### A forged token. Signed with the wrong secret, so verification fails and nothing
+### below it runs.
+POST {{mcp}}/mcp/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJDWC0xMjM0In0.not-a-real-signature
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0", "id": 15, "method": "tools/call",
+  "params": { "name": "get_customer_account", "arguments": { "cx_id": "{{cx}}" } }
+}
+
+### To see a permission refusal, mint a narrower token first:
+###   uv run --env-file .env python scripts/mint_dev_token.py --scope "account:read" --write-env
+### then send the invoice call above. forbidden, because billing:read is not held.

@@ -1,0 +1,170 @@
+name: ci
+
+# A check that reports but does not block is decoration. Every job here is required on
+# all three protected branches, and the pipeline calls the same make targets a developer
+# runs, so nothing can pass locally and fail here for a reason nobody can reproduce.
+#
+# The branch model is one working branch and two environment branches:
+#
+#   development ──PR──► staging ──PR──► production
+#     ^              |                 |
+#     |           deploy QA       deploy PROD (approval + rollback)
+#   all work
+#
+# There is one developer branch, on purpose. Per-person branches make sense when the
+# merge order between people is the hard problem; here it is not, and the cost of the
+# extra branches is a promotion graph nobody can read at 3am. `development` is where work
+# lands; `staging` and `production` are where it has got to.
+
+on:
+  push:
+    branches: [development, staging, production]
+  pull_request:
+    branches: [development, staging, production]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+
+jobs:
+  check:
+    name: check (py${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # The package supports both, so both are tested. Testing only one is how a
+        # supported version quietly stops working.
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the secret scan reads history, not just the diff
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install from the lock file
+        run: uv sync --frozen --all-extras --python ${{ matrix.python }}
+
+      - name: Fail if the lock file is out of date
+        run: uv lock --check
+
+      - name: Format, lint, types, tests, coverage and generated assets
+        run: make check
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python }}
+          path: coverage.xml
+          if-no-files-found: warn
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Dependency vulnerability audit
+        run: uv run --with pip-audit pip-audit --strict
+
+      - name: Secret scan of the whole history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Static security analysis
+        run: uv run --with bandit bandit -r src -q
+
+  # --- The check that only matters on a promotion PR ------------------------------
+  promotion:
+    name: promotion
+    if: github.event_name == 'pull_request' && github.base_ref != 'development'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: A promotion may only come from the branch below it
+        run: |
+          set -euo pipefail
+          base='${{ github.base_ref }}'
+          head='${{ github.head_ref }}'
+          case "$base:$head" in
+            staging:development|production:staging) ;;
+            *)
+              echo "::error title=Promotion path::$head cannot be merged into $base." \
+                   "The only promotions are development -> staging and staging -> production."
+              exit 1
+              ;;
+          esac
+          echo "promotion path $head -> $base is allowed"
+
+      - name: The promotion must be a fast-forward, so the same commits reach production
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin '${{ github.base_ref }}' '${{ github.head_ref }}'
+          if ! git merge-base --is-ancestor "origin/${{ github.base_ref }}" \
+                 "origin/${{ github.head_ref }}"; then
+            echo "::error title=Not a fast-forward::${{ github.base_ref }} has commits" \
+                 "that ${{ github.head_ref }} does not. A promotion that needs a merge" \
+                 "commit is a promotion that ships something staging never ran."
+            exit 1
+          fi
+          echo "fast-forward: production will run the commits staging ran"
+
+  clean-install:
+    name: clean install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      # Deliberately uncached: this is the job that proves a fresh install works.
+      - name: Build a wheel and install it into an empty environment
+        run: ./scripts/clean_install_check.sh
+
+  container:
+    name: container
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t telecom-mcp-tools:ci .
+
+      - name: Start it and prove it answers readiness
+        run: ./scripts/docker_smoke.sh telecom-mcp-tools:ci
+
+      - name: Record the base image digest
+        run: |
+          mkdir -p dist
+          docker image inspect python:3.12-slim-bookworm \
+            --format '{{index .RepoDigests 0}}' | tee dist/base-image-digest.txt
+
+      - name: Upload the digest with the build record
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-image-digest
+          path: dist/base-image-digest.txt
