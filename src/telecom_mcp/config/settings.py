@@ -22,8 +22,10 @@ from typing import Literal, Self
 from pydantic import Field, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from telecom_mcp._version import __version__
 from telecom_mcp.domain.errors import ConfigurationError
 from telecom_mcp.guardrails.policy import GuardrailPolicy
+from telecom_mcp.observability.tracing import Exporter, TracingConfig
 
 Environment = Literal["local", "staging", "production"]
 BackendKind = Literal["fake", "http"]
@@ -31,6 +33,7 @@ VerifierKind = Literal["local", "jwks"]
 ServiceIdentitySource = Literal["static", "client_credentials"]
 IdempotencyStoreKind = Literal["memory", "redis"]
 AuditSinkKind = Literal["stdout", "file"]
+TraceExporter = Literal["none", "otlp", "azure_monitor"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
@@ -119,6 +122,34 @@ class Settings(BaseSettings):
     guardrail_max_output_bytes: int = Field(default=262_144, ge=1_024, le=8_388_608)
     guardrail_output_secret_scan: bool = True
 
+    # --- Telemetry ---
+    # Off by default so a laptop needs no collector. Production is refused without it:
+    # a deployment that believes it is being traced and is not is worse than one that
+    # knows it is not.
+    tracing_enabled: bool = False
+    trace_exporter: TraceExporter = "none"
+    #: OTLP/HTTP endpoint, when trace_exporter=otlp.
+    otlp_endpoint: str | None = None
+    #: Application Insights connection string, when trace_exporter=azure_monitor. It
+    #: contains the instrumentation key, so it is a secret and comes from Key Vault.
+    applicationinsights_connection_string: SecretStr | None = None
+    #: Head sampling. Parent-based, so a sampled request stays sampled downstream.
+    trace_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    # --- Azure ---
+    # The subscription and tenant the deployment lives in. The application itself
+    # authenticates with a managed identity in Azure and needs none of these at run
+    # time; they are here so that a developer running against the real resources, and
+    # the scripts in scripts/, read one file rather than three.
+    azure_tenant_id: str | None = None
+    azure_subscription_id: str | None = None
+    #: Client id of the app registration or user-assigned managed identity.
+    azure_client_id: str | None = None
+    #: Only ever set on a developer machine. In Azure the identity is managed and there
+    #: is no secret; in CI the pipeline federates through OIDC and there is no secret.
+    azure_client_secret: SecretStr | None = None
+    azure_key_vault_name: str | None = None
+
     # --- Audit ---
     audit_sink: AuditSinkKind = "stdout"
     audit_file_path: str = "./audit.log"
@@ -174,6 +205,23 @@ class Settings(BaseSettings):
         if self.idempotency_store == "redis" and not self.redis_url:
             missing.append("TELECOM_MCP_REDIS_URL (required when IDEMPOTENCY_STORE=redis)")
 
+        if self.tracing_enabled:
+            if self.trace_exporter == "otlp" and not self.otlp_endpoint:
+                missing.append("TELECOM_MCP_OTLP_ENDPOINT (required when TRACE_EXPORTER=otlp)")
+            if (
+                self.trace_exporter == "azure_monitor"
+                and self.applicationinsights_connection_string is None
+            ):
+                missing.append(
+                    "TELECOM_MCP_APPLICATIONINSIGHTS_CONNECTION_STRING "
+                    "(required when TRACE_EXPORTER=azure_monitor)"
+                )
+            if self.trace_exporter == "none":
+                missing.append(
+                    "TELECOM_MCP_TRACE_EXPORTER (tracing is enabled but no exporter is "
+                    "configured, so every span would be built and thrown away)"
+                )
+
         if missing:
             raise ValueError("missing required configuration:\n  - " + "\n  - ".join(missing))
 
@@ -207,6 +255,11 @@ class Settings(BaseSettings):
                 unsafe.append(
                     "TELECOM_MCP_GUARDRAIL_OUTPUT_SECRET_SCAN must be true in production"
                 )
+            if not self.tracing_enabled:
+                unsafe.append(
+                    "TELECOM_MCP_TRACING_ENABLED must be true in production; an "
+                    "incident without traces is an incident investigated by guessing"
+                )
             if unsafe:
                 raise ValueError("unsafe production configuration:\n  - " + "\n  - ".join(unsafe))
 
@@ -224,6 +277,23 @@ class Settings(BaseSettings):
                 f"{self.tool_timeout_s:.1f}s (attempts configured: {attempts})"
             )
         return self
+
+    def tracing_config(self) -> TracingConfig:
+        """The tracing configuration, with the secret unwrapped exactly once."""
+        return TracingConfig(
+            enabled=self.tracing_enabled,
+            exporter=Exporter(self.trace_exporter),
+            service_name=self.service_name,
+            service_version=__version__,
+            environment=self.env,
+            endpoint=self.otlp_endpoint,
+            connection_string=(
+                self.applicationinsights_connection_string.get_secret_value()
+                if self.applicationinsights_connection_string is not None
+                else None
+            ),
+            sample_ratio=self.trace_sample_ratio,
+        )
 
     def guardrail_policy(self) -> GuardrailPolicy:
         """The policy object the guardrail pipeline runs on.
