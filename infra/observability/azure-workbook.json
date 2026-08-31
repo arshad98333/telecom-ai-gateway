@@ -1,0 +1,298 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Telecom MCP tools\n\nGenerated from the KPI and SLO catalogues by `scripts/generate_observability.py`. Every tile below states the question it answers and what it means when it moves."
+      }
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Tool calls\n\nHow much work is this thing doing?\n\nThe denominator for every ratio below. A sudden fall is an outage upstream of us and is worth more attention than a rise."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = count()",
+        "size": 1,
+        "title": "Tool calls",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles"
+      },
+      "name": "tool_calls"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Success ratio\n\nAre calls working?\n\nSuccessful and deduplicated calls over all calls. Deduplicated counts as success because the caller got the answer they asked for."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome in (\"ok\"))) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Success ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "success_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Failure ratio\n\nAre we breaking?\n\nCalls that were authorized and then failed. This is our fault or the middleware's; a denial or a guardrail block is not counted here, because a control working correctly is not an error."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome == \"failed\")) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Failure ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "failure_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Latency p95\n\nIs it fast enough for a live call?\n\nA voice case has a five minute budget and an agent may need several tools inside it. p95 is the number that decides whether that is possible."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = percentile(duration, 95) / 1000.0",
+        "size": 1,
+        "title": "Latency p95",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "latency_p95_seconds"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Latency p99\n\nHow bad is the tail?\n\nThe customer who is already annoyed is in this bucket. Track it separately from p95: a p95 that holds while p99 doubles is a retry storm."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = percentile(duration, 99) / 1000.0",
+        "size": 1,
+        "title": "Latency p99",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "latency_p99_seconds"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Calls over the time budget\n\nHow many calls blew the ten second budget?\n\nObservations above the last histogram bucket. A quantile hides these; a count does not, and this is the one number that maps to a real customer sitting in silence."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = countif(duration > 10000)",
+        "size": 1,
+        "title": "Calls over the time budget",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles"
+      },
+      "name": "calls_over_budget"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Load shed ratio\n\nAre we refusing work because we are full?\n\nShedding is the designed behaviour under load, not a bug, but a non-zero value means capacity is the constraint and the next step is replicas."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome == \"shed\")) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Load shed ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "shed_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Deduplication ratio\n\nHow often is a caller repeating itself?\n\nA small number is the idempotency store doing its job. A large one is an agent retrying because it thinks we failed, which is a latency problem wearing a different hat."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome == \"deduplicated\")) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Deduplication ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "deduplication_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Backend retry ratio\n\nIs the middleware healthy?\n\nAttempts beyond the first, over all attempts. Rises before failures do, which makes it the earliest honest warning we have."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome == \"failed\")) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Backend retry ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "backend_retry_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Authorization denial ratio\n\nHow much is the kernel refusing?\n\nA steady low number is normal: agents probe tools they do not hold scopes for. A step change means a token, a role or a claim namespace changed, and it will usually have changed by accident."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome == \"denied\")) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Authorization denial ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "authorization_denial_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Guardrail block ratio\n\nWhat are the guardrails stopping?\n\nNear zero is expected and is not a reason to relax anything. A spike in the injection stage is an attack or a bad prompt template; a spike in argument_size is usually a client bug."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | summarize value = todouble(countif(outcome == \"guardrail_blocked\")) / todouble(max_of(count(), 1))",
+        "size": 1,
+        "title": "Guardrail block ratio",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "linechart"
+      },
+      "name": "guardrail_block_ratio"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Output guardrail blocks\n\nDid we nearly hand a secret to the model?\n\nThis should be zero forever. Any non-zero value means a write happened and the response was withheld, and it is a page rather than a ticket: redaction has met a field it does not know about."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | where stage startswith \"output_\" | summarize value = count()",
+        "size": 1,
+        "title": "Output guardrail blocks",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles"
+      },
+      "name": "output_guardrail_blocks"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Tickets created\n\nWhat did the agent actually do for people?\n\nUp is not automatically good. Read it beside the callback and refund numbers: more tickets and fewer callbacks is the agent resolving things."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | where tool == \"create_support_ticket\" and outcome == \"ok\" | summarize value = count()",
+        "size": 1,
+        "title": "Tickets created",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles"
+      },
+      "name": "tickets_created"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Callbacks scheduled\n\nHow often does this end with a human ringing back?\n\nThe closest thing to a containment measure we have. A rise means the agent is handing more away, which may be correct and is never neutral."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | where tool == \"schedule_callback\" and outcome == \"ok\" | summarize value = count()",
+        "size": 1,
+        "title": "Callbacks scheduled",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles"
+      },
+      "name": "callbacks_scheduled"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Refund approvals requested\n\nHow much money is queued behind a supervisor?\n\nNothing has moved when this increments; it is a queue depth for humans. Watch it against the action budget: a rise in both is one case looping."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let calls = dependencies\n    | where name == \"execute_tool\"\n    | where timestamp > ago({TimeRange})\n    | extend outcome = tostring(customDimensions[\"outcome\"]),\n             tool = tostring(customDimensions[\"tool\"]),\n             stage = tostring(customDimensions[\"stage\"]);\ncalls | where tool == \"request_refund_approval\" and outcome == \"ok\" | summarize value = count()",
+        "size": 1,
+        "title": "Refund approvals requested",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles"
+      },
+      "name": "approvals_requested"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
