@@ -15,10 +15,10 @@ testsprite/
   profile/                          the external-test profile, layered over each .env
     middleware.env                    the four settings that let an outside runner in
     mcp.env                           the same, for the tool server
-  start-testable.ps1                boot both in that profile, mint a token, preflight
+  start_testable.py                 boot both in that profile, mint a token, preflight
   preflight.py                      prove a credential works before a run spends it
   generate_mcp_openapi.py           regenerates the tool server's spec from the catalogue
-  run-testsprite.ps1                the whole flow, in stages
+  run_testsprite.py                 the whole flow, in stages
 ```
 
 ## Why this is not already run
@@ -41,14 +41,14 @@ sixteen product defects:
 | ten tool-server tests **failed**, `token_invalid`, catalogue `{"tools":[]}` | The services were running with `IDENTITY_VERIFIER=jwks` (real Auth0, RS256) while the credential on the project was an HS256 token from `mint_dev_token.py`. Nothing signed that way can verify there. |
 
 Both are configuration, both cost a full paid run to discover, and neither was visible
-in the failure text. `start-testable.ps1` and `preflight.py` exist so that cannot happen
+in the failure text. `start_testable.py` and `preflight.py` exist so that cannot happen
 a third time.
 
 ## Getting to a runnable target
 
-```powershell
-cd "C:\Users\HI\Desktop\ai agent\testsprite"
-.\start-testable.ps1
+```bash
+cd testsprite
+make testable        # or: python testsprite/start_testable.py
 ```
 
 That brings both services up with `profile/*.env` layered over each service's own
@@ -59,7 +59,7 @@ start while they are live on a non-loopback interface.
 
 Then, with the tunnels up:
 
-```powershell
+```bash
 python preflight.py --token <token> --mcp https://<mcp-host> --middleware https://<mw-host>
 ```
 
@@ -82,36 +82,36 @@ So before anything else, both services need a public URL. Two ways:
 
 ## The flow
 
-```powershell
-cd "C:\Users\HI\Desktop\ai agent\testsprite"
+```bash
+cd testsprite
 
 # 1. Is the CLI there and authenticated?
-./run-testsprite.ps1 -Stage preflight
+python run_testsprite.py preflight
 
 # 2. Two projects, both specs uploaded
-./run-testsprite.ps1 -Stage setup `
-    -TargetUrlMcp        https://<your-mcp-url> `
-    -TargetUrlMiddleware https://<your-middleware-url>
+python run_testsprite.py setup \
+    --mcp-url        https://<your-mcp-url> \
+    --middleware-url https://<your-middleware-url>
 
 # 3. A bearer token per project (prompted; never written to a file)
-./run-testsprite.ps1 -Stage credentials
+python run_testsprite.py credentials
 
 # 4. Upload the 18 tests
-./run-testsprite.ps1 -Stage create
+python run_testsprite.py create
 
 # 5. Smoke three of them — not all eighteen
-./run-testsprite.ps1 -Stage smoke
+python run_testsprite.py smoke
 
 # 6. Only when you mean it, and know the credit cost
-./run-testsprite.ps1 -Stage all
+python run_testsprite.py all
 ```
 
 Mint the tokens with the repo's own script, so the audience and the claim namespace
 match what the services expect:
 
-```powershell
-cd ..\telecom-mcp
-uv run python scripts\mint_dev_token.py
+```bash
+cd ../telecom-mcp
+uv run python scripts/mint_dev_token.py
 ```
 
 ## Two projects, not one
@@ -167,10 +167,10 @@ From the official skill, and they are not negotiable:
 
 ## After a run
 
-```powershell
+```bash
 testsprite test list --project <projectId>
 testsprite test steps <testId> --output json          # what actually happened
-testsprite test artifact get <runId> --out .\.testsprite\runs\<runId>\   # on failure
+testsprite test artifact get <runId> --out ./.testsprite/runs/<runId>/   # on failure
 ```
 
 Read a failure before believing it. The official guidance is blunt about this: check

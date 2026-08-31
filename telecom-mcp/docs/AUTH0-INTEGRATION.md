@@ -382,7 +382,7 @@ refreshes into one request, and serves the current token through a provider blip
 it has genuinely expired. `TELECOM_MCP_SERVICE_IDENTITY_SOURCE=static` keeps the old
 shared-secret behaviour; the settings validator refuses it when `ENV=production`.
 
-`infra/auth0/scripts/wire_env.ps1` fills all of this in from the Terraform outputs, so
+`infra/auth0/scripts/wire_env.py` fills all of this in from the Terraform outputs, so
 none of it is copied by hand.
 
 **Before the tenant exists**, the same control runs on a shared secret:
