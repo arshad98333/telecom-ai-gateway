@@ -1,0 +1,76 @@
+# The tool server, standing alone.
+#
+#   docker compose up -d
+#   curl -s localhost:8080/readyz
+#
+# That works with no credentials and no external service: the default configuration
+# uses the built-in fixture backend and a local signing secret. It is a real server
+# with real authorization, serving fake customers - enough to point an MCP client at
+# and see the tool contract behave.
+#
+# To run it against your own deployment, set the values in .env (copy .env.example)
+# and nothing here changes. The eight lines that matter are marked in that file.
+
+name: telecom-mcp-tools
+
+services:
+  mcp:
+    build:
+      context: .
+    image: ${TELECOM_MCP_IMAGE:-telecom-mcp-tools:local}
+    ports:
+      - "${TELECOM_MCP_HTTP_PORT:-8080}:8080"
+    environment:
+      # Bind inside the container, not on the host's loopback, or nothing reaches it.
+      TELECOM_MCP_HTTP_HOST: 0.0.0.0
+      TELECOM_MCP_HTTP_PORT: 8080
+
+      TELECOM_MCP_ENV: ${TELECOM_MCP_ENV:-local}
+      TELECOM_MCP_LOG_LEVEL: ${TELECOM_MCP_LOG_LEVEL:-INFO}
+
+      # fake needs nothing. Set BACKEND=http and a base URL to call your own API.
+      TELECOM_MCP_BACKEND: ${TELECOM_MCP_BACKEND:-fake}
+      TELECOM_MCP_BACKEND_BASE_URL: ${TELECOM_MCP_BACKEND_BASE_URL:-}
+      TELECOM_MCP_BACKEND_API_KEY: ${TELECOM_MCP_BACKEND_API_KEY:-}
+
+      # This service's own credential. client_credentials fetches and refreshes one
+      # from your identity provider; static sends BACKEND_API_KEY unchanged.
+      TELECOM_MCP_SERVICE_IDENTITY_SOURCE: ${TELECOM_MCP_SERVICE_IDENTITY_SOURCE:-static}
+      TELECOM_MCP_SERVICE_TOKEN_URL: ${TELECOM_MCP_SERVICE_TOKEN_URL:-}
+      TELECOM_MCP_SERVICE_CLIENT_ID: ${TELECOM_MCP_SERVICE_CLIENT_ID:-}
+      TELECOM_MCP_SERVICE_CLIENT_SECRET: ${TELECOM_MCP_SERVICE_CLIENT_SECRET:-}
+      TELECOM_MCP_SERVICE_TOKEN_AUDIENCE: ${TELECOM_MCP_SERVICE_TOKEN_AUDIENCE:-}
+
+      # local verifies with the shared secret below; jwks verifies against your
+      # tenant's published keys. Production refuses local.
+      TELECOM_MCP_IDENTITY_VERIFIER: ${TELECOM_MCP_IDENTITY_VERIFIER:-local}
+      TELECOM_MCP_LOCAL_VERIFIER_SECRET: ${TELECOM_MCP_LOCAL_VERIFIER_SECRET:-compose-development-secret-not-for-production}
+      TELECOM_MCP_JWKS_URL: ${TELECOM_MCP_JWKS_URL:-}
+      TELECOM_MCP_JWT_ISSUER: ${TELECOM_MCP_JWT_ISSUER:-}
+      TELECOM_MCP_JWT_AUDIENCE: ${TELECOM_MCP_JWT_AUDIENCE:-}
+      TELECOM_MCP_CLAIM_NAMESPACE: ${TELECOM_MCP_CLAIM_NAMESPACE:-https://telecom.example/}
+
+      # memory deduplicates within one process only. Two replicas need redis, and the
+      # settings validator refuses memory in production for exactly that reason.
+      TELECOM_MCP_IDEMPOTENCY_STORE: ${TELECOM_MCP_IDEMPOTENCY_STORE:-memory}
+      TELECOM_MCP_REDIS_URL: ${TELECOM_MCP_REDIS_URL:-redis://redis:6379/0}
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+
+  # docker compose --profile redis up -d
+  redis:
+    profiles: ["redis"]
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
