@@ -1,6 +1,5 @@
-# The two services are their own repositories, with their own history.
-telecom-mcp/
-telecom-middleware/
+# The two services live here, as subtrees. They were separate repositories; their
+# history came across with them, so `git log -- telecom-mcp` is still the real story.
 
 __pycache__/
 .venv/
