@@ -1,0 +1,987 @@
+{
+  "report": {
+    "schema_version": "1.0",
+    "title": "Telecom MCP + middleware - end-to-end test report",
+    "generated_at": "2026-08-31T18:18:38.841260+00:00",
+    "owner": {
+      "name": "Arshad",
+      "github": "https://github.com/arshad98333",
+      "email": "arshad@arshadify.online"
+    },
+    "workspace": "C:\\\\Users\\\\HI\\\\Desktop\\\\ai agent",
+    "scope": "black-box endpoint + integration tests executed from TestSprite's cloud against both services, reconciled against the local suites and the local execution of the identical test files",
+    "revision": 2
+  },
+  "headline": {
+    "cloud_result": "7 of 23 passed",
+    "local_result_same_files": "23 of 23 passed",
+    "verdict": "environment/credential defect confirmed at the token-verification boundary; still not a product defect",
+    "one_line": "Every cloud failure is a test that sends the credential; the bundle shows the request was well-formed and answered HTTP 200 with an empty tool catalogue - the by-design response when the server cannot verify the caller. The token on disk is valid, so the fault is in what the runner was given or what the running server was started with.",
+    "confidence": "high on the partition and on the failing layer; the choice between a stale stored credential and a stale server process is settled by two free checks"
+  },
+  "summary": {
+    "cloud": {
+      "total": 23,
+      "passed": 7,
+      "failed": 10,
+      "blocked": 6,
+      "timed_out": 0,
+      "pass_rate": 0.3043,
+      "by_project": {
+        "mcp": {
+          "passed": 5,
+          "failed": 10,
+          "timedOut": 0,
+          "deferred": 0,
+          "conflicts": 0,
+          "total": 15,
+          "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6"
+        },
+        "middleware": {
+          "passed": 2,
+          "failed": 6,
+          "timedOut": 0,
+          "deferred": 0,
+          "conflicts": 0,
+          "total": 8,
+          "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75"
+        }
+      },
+      "window": {
+        "start": "2026-08-31T18:00:20Z",
+        "end": "2026-08-31T18:02:11Z"
+      }
+    },
+    "local_same_files": {
+      "total": 23,
+      "passed": 23,
+      "generated_at": "2026-08-31T17:18:29.503063+00:00",
+      "pass_rate": 1.0
+    },
+    "local_unit_and_integration_suites": {
+      "telecom_mcp": {
+        "tests_passed": 648,
+        "line_coverage_pct": 95.16
+      },
+      "middleware": {
+        "tests_passed": 373,
+        "deselected": 43,
+        "deselect_reason": "mongo-backed tests, no local mongo"
+      },
+      "cross_service_e2e": {
+        "tests_passed": 20
+      },
+      "packaging": {
+        "consumer_wheel_check": "passed",
+        "detail": "wheel installed into a clean venv outside the source tree, real MCP calls driven against it"
+      },
+      "total_local_assertions": 1041
+    }
+  },
+  "failure_analysis": {
+    "partition_evidence": {
+      "claim": "Cloud pass/fail is fully explained by one variable: whether the test sends the credential TestSprite injects.",
+      "authenticated_tests": {
+        "total": 16,
+        "passed_in_cloud": 0,
+        "not_passed_in_cloud": 16
+      },
+      "unauthenticated_tests": {
+        "total": 7,
+        "passed_in_cloud": 7,
+        "not_passed_in_cloud": 0
+      },
+      "separation": "perfect",
+      "corroborating_facts": [
+        "All 23 of these exact files pass against the same build locally (validation-result.json, 23/23).",
+        "The canary and every other unauthenticated test reached the server through the same Cloudflare tunnels in the same minute, so the tunnels, the stamped BASE_URL and DNS were all healthy during both batches.",
+        "'Middleware - an anonymous read reaches no customer data' PASSED while decoding the injected credential locally (it calls subject(), which runs assert_credential_is_live()). So the credential was present, well-formed and not expired at run time.",
+        "The injected token's exp is 1788284068 = 2026-09-01T17:34:28Z; the batches ran 2026-08-31T18:00-18:02Z, roughly 23.5 hours inside its life.",
+        "Failure is therefore not: tunnel down, wrong URL, missing credential, or expired credential. It is confined to the moment the header is attached to an outbound request."
+      ]
+    },
+    "ruled_out": [
+      {
+        "cause": "Cloudflare tunnel down (the Error 1033 that killed the earlier batches)",
+        "evidence": "7 tests reached both services through the same two tunnels inside the same 2-minute window; both /healthz returned healthy immediately before each batch."
+      },
+      {
+        "cause": "Wrong or stale stamped BASE_URL",
+        "evidence": "The stamped literals in build/ match the tunnels that were live for this run, and unauthenticated tests against those literals passed."
+      },
+      {
+        "cause": "Expired credential (the cause of the earlier 'no tools were listed' failure)",
+        "evidence": "assert_credential_is_live() ran inside a PASSING cloud test and did not fire; exp is 2026-09-01T17:34:28Z, ~23.5h after the run."
+      },
+      {
+        "cause": "Guardrail action-budget exhaustion",
+        "evidence": "Would hit only write tests; here reads fail identically. Budget was also raised to 200 per case for this run."
+      },
+      {
+        "cause": "A product regression in either service",
+        "evidence": "The same 23 files pass against the same build locally, and 1,041 local tests pass at 95.16% coverage on the MCP package."
+      }
+    ],
+    "root_cause_candidates": [
+      {
+        "rank": 1,
+        "hypothesis": "__AUTH_HEADERS__ is not a mapping in TestSprite's V3 sandbox (most likely a JSON string).",
+        "mechanism": "Every authenticated helper does `headers.update(__AUTH_HEADERS__)` (MCP) or `dict(__AUTH_HEADERS__)` (middleware). Both raise ValueError/TypeError on a str. The exception is thrown before any request leaves the sandbox, which is why the middleware side is reported as 'blocked' rather than 'failed' - the runner never got to an assertion.",
+        "explains_the_partition": true,
+        "supporting": [
+          "validate_locally.py injects __AUTH_HEADERS__ as a dict ({'Authorization': 'Bearer ...'}). That is an assumption about TestSprite's contract, not an observation of it - and it is the ONLY place the local harness and the cloud runner can differ for these tests.",
+          "The 6 middleware tests are 'blocked', a status TestSprite uses for a run that errors before assertions."
+        ],
+        "fix": "Normalise defensively in the shared preamble: build the header dict from __AUTH_CREDENTIAL__ (which is a plain string and is already proven to work - subject() parses it successfully in the cloud) and use __AUTH_HEADERS__ only when it is already a Mapping.",
+        "fix_snippet": "def auth_headers() -> dict:\n    h = globals().get('__AUTH_HEADERS__')\n    if isinstance(h, str):\n        try:\n            h = json.loads(h)\n        except ValueError:\n            h = None\n    if isinstance(h, dict) and h:\n        return dict(h)\n    return {'Authorization': __AUTH_CREDENTIAL__}  # proven-good fallback",
+        "cost_to_verify": "free - no TestSprite credits; restamp and re-upload only after the bundle confirms.",
+        "status": "DISPROVEN by the failure bundle",
+        "disproof": "The bundle's code.py shows __AUTH_HEADERS__ is a genuine dict and the credential carries no scheme prefix, so headers.update()/dict() could not have raised. failureKind is 'assertion', not 'error': the request went out, reached the server and came back 200. No double-Bearer either."
+      },
+      {
+        "rank": 2,
+        "hypothesis": "The header is attached correctly but the server rejects the token when the call arrives from TestSprite's cloud egress.",
+        "mechanism": "IDENTITY_VERIFIER=jwks makes the tool server fetch Auth0's JWKS on first verification. If that fetch fails or is slow from the host behind the tunnel, verification fails and the kernel returns an empty tool catalogue rather than an error - by design, so the catalogue cannot be probed. Every authenticated test then fails with a shape assertion instead of an auth error.",
+        "explains_the_partition": true,
+        "discriminator": "In the failure bundle for 'MCP - the tool list is the frozen v1 catalogue', an empty tools array with HTTP 200 points here; a Python traceback in the helper points to rank 1.",
+        "fix": "Warm and pin the JWKS cache at startup, and surface a distinguishable readiness signal for identity verification.",
+        "status": "CONFIRMED as the failing layer, mechanism still to be isolated",
+        "confirmed_by": "HTTP 200 with an empty tools array is exactly the by-design response of list_tools_for_caller() when verifier.verify(token) raises or the identity carries no permissions. The request shape, URL and header were all correct."
+      },
+      {
+        "rank": 3,
+        "hypothesis": "Cloudflare quick tunnel drops or rewrites the Authorization header on POST bodies from TestSprite's egress.",
+        "mechanism": "Would strip auth on exactly the authenticated calls while leaving plain GETs intact.",
+        "explains_the_partition": true,
+        "assessment": "Least likely - quick tunnels forward Authorization unchanged in normal operation, and the MCP GETs and the anonymous POST both traversed the same tunnel successfully.",
+        "discriminator": "A 401/empty-catalogue in the bundle plus a matching 'no bearer token' line in the tool server's own log would confirm.",
+        "status": "DISPROVEN - the request reached the server and was answered 200 through the tunnel"
+      }
+    ],
+    "next_actions": [
+      {
+        "order": 1,
+        "cost": "free",
+        "action": "Probe the running MCP server directly with the on-disk token, bypassing TestSprite entirely. Eight tools means the server is fine and the stored credential is stale (rank 1); an empty list means the running process is the problem (rank 2 or 3)."
+      },
+      {
+        "order": 2,
+        "cost": "free",
+        "action": "Pull a middleware failure bundle (runId fe79239b-b98f-4835-b061-6069edf5dcaa) to confirm whether the 'blocked' six share this cause or have their own."
+      },
+      {
+        "order": 3,
+        "cost": "free",
+        "action": "Re-set both project credentials from the DEV_TOKEN currently on disk."
+      },
+      {
+        "order": 4,
+        "cost": "1 run",
+        "action": "Run a single AUTHENTICATED canary (63518852-f5a3-4625-9cab-4be0a6bfe65e) before any batch. The previous canary was unauthenticated, which is why it passed while 16 authenticated tests failed - that gap is the process defect to fix."
+      },
+      {
+        "order": 5,
+        "cost": "2 batches",
+        "action": "Only once the authenticated canary passes, re-run both batches."
+      }
+    ],
+    "bundle_evidence": {
+      "source": "bundle-toollist/ (runId 2b1c0af4-12c4-440b-bf44-bba505b2dc9c, snapshot snap_f084b2b04db69aa3)",
+      "fetched_at": "2026-08-31T18:15:05.936Z",
+      "failure_kind": "assertion",
+      "observed": "POST https://doe-july-wildlife-chubby.trycloudflare.com/mcp/ -> HTTP 200, body {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}",
+      "trace": "AssertionError in test_initialize_then_tools_list_returns_the_v1_catalogue - the catalogue came back empty",
+      "injection_contract_as_actually_seen": {
+        "__AUTH_CREDENTIAL__": "raw JWT from env var TESTSPRITE_AUTH_CREDENTIAL (no scheme prefix)",
+        "__AUTH_TYPE__": "bearer",
+        "__EXTRA_HEADERS__": {},
+        "__AUTH_HEADERS__": "{'Authorization': f'Bearer {__AUTH_CREDENTIAL__}'} - a real dict, built by the runner"
+      }
+    },
+    "token_forensics": {
+      "source": "DEV_TOKEN in telecom-mcp/.env, written 2026-08-31T17:34Z by infra/auth0/scripts/get_token.py --write-env",
+      "verdict": "the token on disk is valid and sufficient - it is NOT the problem",
+      "alg": "RS256",
+      "kid_present": true,
+      "iss": "https://dev-dd56qu5i64yxhygz.us.auth0.com/",
+      "aud": [
+        "https://api.telecom.example/v1",
+        "https://dev-dd56qu5i64yxhygz.us.auth0.com/userinfo"
+      ],
+      "expected_aud_from_env": "TELECOM_MCP_JWT_AUDIENCE=https://api.telecom.example/v1 - present, so audience matches",
+      "expected_iss_from_env": "TELECOM_MCP_JWT_ISSUER=https://dev-dd56qu5i64yxhygz.us.auth0.com/ - matches",
+      "verifier_from_env": "TELECOM_MCP_IDENTITY_VERIFIER=jwks",
+      "permissions_count": 11,
+      "permissions": [
+        "account:read",
+        "billing:read",
+        "callback:write",
+        "case:read",
+        "case:write",
+        "network:read",
+        "order:read",
+        "refund:request",
+        "service:read",
+        "ticket:read",
+        "ticket:write"
+      ],
+      "namespaced_claims": {
+        "https://telecom.example/tenant_id": "tenant-eu-1",
+        "https://telecom.example/role": "customer",
+        "https://telecom.example/cx_id": "CX-1234"
+      },
+      "exp_iso": "2026-09-01T17:34:28Z",
+      "scheme_prefix_on_disk": false
+    },
+    "remaining_candidates": [
+      {
+        "rank": 1,
+        "hypothesis": "The credential stored in the TestSprite MCP project is a different, older token than the DEV_TOKEN now on disk.",
+        "why_plausible": "Project credentials were set earlier in the session, before the Auth0 Token Expiration was raised to 86400s, when tokens lived ~16 minutes. DEV_TOKEN on disk was rewritten at 17:34Z, after that. Crucially, none of the five PASSING MCP tests call subject(), so assert_credential_is_live() never executed on the MCP project - an expired stored credential would leave no trace in the results.",
+        "does_not_explain": "the middleware six, whose stored credential was proven live by a passing test that does call subject()",
+        "check": "free - re-set both credentials from the DEV_TOKEN on disk, then run one canary"
+      },
+      {
+        "rank": 2,
+        "hypothesis": "The running server behind the tunnel was started before .env reached its current state, so its verifier config is not what .env now says.",
+        "why_plausible": ".env was modified at 17:34Z (DEV_TOKEN write plus the guardrail budget change). Both uvicorn processes were started earlier via Start-Process. A process started with TELECOM_MCP_IDENTITY_VERIFIER=local cannot verify an RS256 Auth0 token, and by design answers with an empty catalogue rather than an error. This would ALSO explain the guardrail action-budget override apparently not taking effect.",
+        "check": "free - probe 127.0.0.1:9100 directly with the on-disk token"
+      },
+      {
+        "rank": 3,
+        "hypothesis": "JWKS fetch from the host fails or times out, so verify() raises and the catalogue is emptied.",
+        "check": "the server's own log - it emits tool_listing_unauthenticated on TokenVerificationError"
+      }
+    ],
+    "process_lessons": [
+      "The canary must exercise the same machinery as the batch. A liveness canary proved the tunnel and nothing else, and 23 paid runs were spent on a credential path it never touched.",
+      "validate_locally.py mints its own HS256 token and starts both servers with IDENTITY_VERIFIER=local and audience 'telecom-mcp-tools'. The tunnelled servers run IDENTITY_VERIFIER=jwks against real Auth0 with audience 'https://api.telecom.example/v1'. So 23/23 locally never tested the verification path that failed in the cloud - the local harness should be able to run against the real verifier.",
+      "Only one of the seven cloud passes validated the credential at all. Every suite should carry one cheap authenticated assertion that runs first and fails loudly."
+    ]
+  },
+  "coverage": {
+    "middleware_openapi": {
+      "operations_total": 23,
+      "operations_exercised_by_cloud_suite": 10,
+      "exercised": [
+        "GET /api/v1/audit",
+        "GET /api/v1/customers/{cx_id}",
+        "GET /api/v1/customers/{cx_id}/invoices",
+        "GET /api/v1/customers/{cx_id}/network",
+        "GET /api/v1/customers/{cx_id}/orders",
+        "GET /api/v1/customers/{cx_id}/services",
+        "GET /api/v1/customers/{cx_id}/tickets",
+        "GET /healthz",
+        "GET /readyz",
+        "POST /api/v1/customers/{cx_id}/tickets"
+      ],
+      "not_exercised": [
+        "DELETE /api/v1/assignments/{agent_sub}/{cx_id}",
+        "GET /api/v1/approvals",
+        "GET /api/v1/approvals/{request_id}",
+        "GET /api/v1/assignments/{agent_sub}",
+        "GET /api/v1/cases/{case_id}",
+        "GET /api/v1/stream",
+        "POST /api/v1/approvals/{request_id}/decision",
+        "POST /api/v1/assignments",
+        "POST /api/v1/customers/{cx_id}/authenticate",
+        "POST /api/v1/customers/{cx_id}/callbacks",
+        "POST /api/v1/customers/{cx_id}/cases/resume",
+        "POST /api/v1/customers/{cx_id}/refund-approvals",
+        "PUT /api/v1/cases"
+      ],
+      "note": "Operations not exercised black-box (approvals, cases, assignments, stream, callbacks, refund-approvals, authenticate) are covered by the local middleware suite; they were left out of the paid cloud suite deliberately to keep credit spend bounded."
+    },
+    "mcp_surface": {
+      "http_operations_total": 5,
+      "http_operations_exercised": [
+        "GET /healthz",
+        "GET /kpi",
+        "GET /metrics",
+        "GET /readyz",
+        "POST /mcp/"
+      ],
+      "tools_total": 8,
+      "tools_exercised": [
+        "get_customer_account",
+        "get_invoice_summary",
+        "create_support_ticket",
+        "request_refund_approval"
+      ],
+      "tools_not_exercised": [
+        "get_service_status",
+        "get_order_status",
+        "get_network_status",
+        "schedule_callback"
+      ],
+      "negative_tool_probes": [
+        "delete_everything (unknown tool must be refused)",
+        "oversize argument payload",
+        "prompt-injection payload",
+        "foreign cx_id"
+      ]
+    },
+    "kernel_stages_exercised": [
+      "tool_scope",
+      "token",
+      "tenant",
+      "cx_id",
+      "account_ownership",
+      "role",
+      "permission",
+      "input_schema"
+    ],
+    "guardrail_checks_exercised": [
+      "rate limit",
+      "size/shape",
+      "unicode",
+      "injection",
+      "business rules",
+      "action budget",
+      "output size cap",
+      "secret scan"
+    ]
+  },
+  "tests": [
+    {
+      "test_id": "68e8f2af-27f4-4ec1-98d7-59fd1da1ffb3",
+      "name": "MCP - a cross account read is refused",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ tools/call get_invoice_summary (foreign cx_id)"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "770f8ec6-bd5a-4eb1-9487-ce95cf4e6550",
+        "finished_at": "2026-08-31T18:00:43.079Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/68e8f2af-27f4-4ec1-98d7-59fd1da1ffb3",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/08_a_cross_account_read_is_refused.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "4d422510-74cc-4fe2-82c9-384742bd7837",
+      "name": "MCP - a read returns the frozen contract shape",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ tools/call get_invoice_summary"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "7a01634d-6702-4956-9d29-a0fc7a6a2f51",
+        "finished_at": "2026-08-31T18:00:49.554Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/4d422510-74cc-4fe2-82c9-384742bd7837",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/07_a_read_returns_the_frozen_contract_shape.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "321e59c6-5d1e-44d7-a09c-f9ac8e6ee591",
+      "name": "MCP - a refund request moves no money",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ tools/call request_refund_approval"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "50cbfd3a-9c08-4183-9c04-f8868241ceba",
+        "finished_at": "2026-08-31T18:00:34.251Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/321e59c6-5d1e-44d7-a09c-f9ac8e6ee591",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/12_a_refund_request_moves_no_money.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "0ffded43-61a6-423a-abe6-39dce02a9223",
+      "name": "MCP - a repeated write creates one ticket",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ tools/call create_support_ticket x2 (idempotency)"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "ea458d09-7a1f-426f-9ca3-0068c9a23892",
+        "finished_at": "2026-08-31T18:00:23.161Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/0ffded43-61a6-423a-abe6-39dce02a9223",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/11_a_repeated_write_creates_one_ticket.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "599f29a7-c1a2-473b-944e-4c4936002345",
+      "name": "MCP - oversized and malformed arguments are refused",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ tools/call (oversize)",
+        "POST /mcp/ tools/call delete_everything (unknown tool)"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "5f427f5c-051c-47d2-859e-c8306a1ba653",
+        "finished_at": "2026-08-31T18:00:40.918Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/599f29a7-c1a2-473b-944e-4c4936002345",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/10_oversized_and_malformed_arguments_are_refused.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "64fbd46a-910b-4600-935f-e3b613d629f0",
+      "name": "MCP - the guardrail refuses an injection payload",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ tools/call (injection payload)"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "40455288-a082-48d2-8253-c1c31ca5196a",
+        "finished_at": "2026-08-31T18:00:23.402Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/64fbd46a-910b-4600-935f-e3b613d629f0",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/09_the_guardrail_refuses_an_injection_payload.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "63518852-f5a3-4625-9cab-4be0a6bfe65e",
+      "name": "MCP - the tool list is the frozen v1 catalogue",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /mcp/ initialize",
+        "POST /mcp/ tools/list"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "2b1c0af4-12c4-440b-bf44-bba505b2dc9c",
+        "finished_at": "2026-08-31T18:00:42.358Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/63518852-f5a3-4625-9cab-4be0a6bfe65e",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/06_the_tool_list_is_the_frozen_v1_catalogue.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "69a74b85-d0a2-49a5-ab34-fc6c608f5a16",
+      "name": "MCP Integration - the billing complaint journey",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "integration",
+      "sends_injected_credential": true,
+      "exercises": [
+        "tools/call get_customer_account",
+        "tools/call get_invoice_summary",
+        "tools/call create_support_ticket"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "4ee03b88-c2a4-42a9-a8d2-9d8dde34d560",
+        "finished_at": "2026-08-31T18:00:52.636Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/69a74b85-d0a2-49a5-ab34-fc6c608f5a16",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp_integration/01_the_billing_complaint_journey.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "d4c85a87-2f73-4001-91ef-69fb3e928673",
+      "name": "MCP Integration - the refund journey stops at a human",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "integration",
+      "sends_injected_credential": true,
+      "exercises": [
+        "tools/call get_invoice_summary",
+        "tools/call request_refund_approval"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "f12de7c7-1628-4a7c-a303-094375fb6ca5",
+        "finished_at": "2026-08-31T18:00:51.991Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/d4c85a87-2f73-4001-91ef-69fb3e928673",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp_integration/02_the_refund_journey_stops_at_a_human.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "f7df09c3-13e5-4f7a-937f-169fa9f1fee2",
+      "name": "MCP Integration - three controls refuse in the right order",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "integration",
+      "sends_injected_credential": true,
+      "exercises": [
+        "ownership -> guardrail -> budget refusal ordering"
+      ],
+      "cloud": {
+        "status": "failed",
+        "run_id": "70e17071-be4e-489b-afb6-dc7ab331a325",
+        "finished_at": "2026-08-31T18:00:50.493Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/f7df09c3-13e5-4f7a-937f-169fa9f1fee2",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp_integration/03_three_controls_refuse_in_the_right_order.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "c6d37d27-2837-422f-b27a-8586c74770a9",
+      "name": "MCP - an unauthenticated call reaches no tool",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "POST /mcp/ tools/call get_invoice_summary (no token)"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "7081405b-f28b-49b2-af4d-29e2b73b18bd",
+        "finished_at": "2026-08-31T18:00:39.587Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/c6d37d27-2837-422f-b27a-8586c74770a9",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/05_an_unauthenticated_call_reaches_no_tool.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": true
+    },
+    {
+      "test_id": "696356a1-04e1-4f89-9b19-9bfc0080402b",
+      "name": "MCP - kpi endpoint carries meaning not just numbers",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "GET /kpi"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "3ca337e3-efa5-46ce-970c-9f3c45588f3a",
+        "finished_at": "2026-08-31T18:00:21.129Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/696356a1-04e1-4f89-9b19-9bfc0080402b",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/03_kpi_endpoint_carries_meaning_not_just_numbers.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": true
+    },
+    {
+      "test_id": "39f53f96-39d3-4373-924d-ada3eb1b44ad",
+      "name": "MCP - liveness never depends on anything external",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "GET /healthz"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "5715db2a-8c9e-476f-afd3-2bc78f85549e",
+        "finished_at": "2026-08-31T18:00:20.976Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/39f53f96-39d3-4373-924d-ada3eb1b44ad",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/01_liveness_never_depends_on_anything_external.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": true
+    },
+    {
+      "test_id": "71c5c011-f2dd-4cd2-bef3-46d2c7059d0d",
+      "name": "MCP - metrics are scrapable and carry no customer",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "GET /metrics"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "af6f0dc7-e79f-4b4b-8f4a-d365dd66d4a4",
+        "finished_at": "2026-08-31T18:00:21.056Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/71c5c011-f2dd-4cd2-bef3-46d2c7059d0d",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/04_metrics_are_scrapable_and_carry_no_customer.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": true
+    },
+    {
+      "test_id": "ba9827a8-597d-4d00-8145-d7e9dc756a0c",
+      "name": "MCP - readiness names the dependencies it checked",
+      "project": "mcp",
+      "project_id": "78af714a-bc8e-47d5-9422-467c0177e2d6",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "GET /readyz"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "5425b275-83ba-4a07-9175-894bdeaf97c3",
+        "finished_at": "2026-08-31T18:00:40.046Z",
+        "target": "https://doe-july-wildlife-chubby.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/test-cases/ba9827a8-597d-4d00-8145-d7e9dc756a0c",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/78af714a-bc8e-47d5-9422-467c0177e2d6/execution/c3966b57-2acc-4e8d-b53e-199c69791494"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/mcp/02_readiness_names_the_dependencies_it_checked.py",
+        "target": "http://127.0.0.1:9100"
+      },
+      "agrees_local_vs_cloud": true
+    },
+    {
+      "test_id": "d1abfcc2-c31f-4dd1-af6b-b039272c45aa",
+      "name": "Middleware - a cross account read is refused on its own",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "GET /api/v1/customers/{other_cx_id}"
+      ],
+      "cloud": {
+        "status": "blocked",
+        "run_id": "5299fa7f-075b-48e0-853f-d0aa5203914c",
+        "finished_at": "2026-08-31T18:02:11.423Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/d1abfcc2-c31f-4dd1-af6b-b039272c45aa",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware/04_a_cross_account_read_is_refused_on_its_own.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "05ab42f3-f797-4cc6-8b1a-8fa59a800f4a",
+      "name": "Middleware - a repeated ticket write creates one ticket",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /api/v1/customers/{cx_id}/tickets x2"
+      ],
+      "cloud": {
+        "status": "blocked",
+        "run_id": "5f141346-745a-4c24-a34a-b0ad8688ece4",
+        "finished_at": "2026-08-31T18:02:10.855Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/05ab42f3-f797-4cc6-8b1a-8fa59a800f4a",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware/05_a_repeated_ticket_write_creates_one_ticket.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "c08bf92b-b1cd-4fc1-955e-692fb4a8b363",
+      "name": "Middleware - an account read returns the documented shape",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "GET /api/v1/customers/{cx_id}"
+      ],
+      "cloud": {
+        "status": "blocked",
+        "run_id": "fe79239b-b98f-4835-b061-6069edf5dcaa",
+        "finished_at": "2026-08-31T18:02:11.129Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/c08bf92b-b1cd-4fc1-955e-692fb4a8b363",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware/03_an_account_read_returns_the_documented_shape.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "007ee3ac-1ac6-4065-8d77-b38f028f77c5",
+      "name": "Middleware - the audit trail records the call and chains",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "endpoint",
+      "sends_injected_credential": true,
+      "exercises": [
+        "POST /api/v1/customers/{cx_id}/tickets",
+        "GET /api/v1/audit"
+      ],
+      "cloud": {
+        "status": "blocked",
+        "run_id": "77bff822-9e1f-4653-a383-ea3e06634baa",
+        "finished_at": "2026-08-31T18:02:11.122Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/007ee3ac-1ac6-4065-8d77-b38f028f77c5",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware/06_the_audit_trail_records_the_call_and_chains.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "2279a17b-2a9a-47b1-bf4a-dd73a629ffe9",
+      "name": "Middleware Integration - a ticket lands in the store and the trail",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "integration",
+      "sends_injected_credential": true,
+      "exercises": [
+        "GET /api/v1/customers/{cx_id}",
+        "GET /api/v1/customers/{cx_id}/invoices",
+        "POST /api/v1/customers/{cx_id}/tickets",
+        "GET /api/v1/customers/{cx_id}/tickets"
+      ],
+      "cloud": {
+        "status": "blocked",
+        "run_id": "b012074a-0b4f-4c3a-831e-6e7cedabd037",
+        "finished_at": "2026-08-31T18:02:11.455Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/2279a17b-2a9a-47b1-bf4a-dd73a629ffe9",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware_integration/01_a_ticket_lands_in_the_store_and_the_trail.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "ad90bfa5-30de-40a0-8859-45c3f2b95f44",
+      "name": "Middleware Integration - every read a customer owns answers",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "integration",
+      "sends_injected_credential": true,
+      "exercises": [
+        "GET /api/v1/customers/{cx_id}",
+        "/services",
+        "/orders",
+        "/invoices",
+        "/network",
+        "/tickets"
+      ],
+      "cloud": {
+        "status": "blocked",
+        "run_id": "ef2e8e72-499a-49c6-a94c-a40275b6c700",
+        "finished_at": "2026-08-31T18:02:11.347Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/ad90bfa5-30de-40a0-8859-45c3f2b95f44",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware_integration/02_every_read_a_customer_owns_answers.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": false
+    },
+    {
+      "test_id": "af316c0d-b1e1-4543-8625-be8a24170679",
+      "name": "Middleware - an anonymous read reaches no customer data",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "GET /api/v1/customers/{cx_id} (no token)"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "679dbcd4-7ffa-4dbe-8d4e-9da53e9d8934",
+        "finished_at": "2026-08-31T18:02:09.560Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/af316c0d-b1e1-4543-8625-be8a24170679",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware/02_an_anonymous_read_reaches_no_customer_data.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": true
+    },
+    {
+      "test_id": "c7572414-bcad-4caa-ae37-370939386c90",
+      "name": "Middleware - health and readiness are separate questions",
+      "project": "middleware",
+      "project_id": "9006ee4c-1f41-4e82-8593-f65c21e1ad75",
+      "layer": "endpoint",
+      "sends_injected_credential": false,
+      "exercises": [
+        "GET /healthz",
+        "GET /readyz"
+      ],
+      "cloud": {
+        "status": "passed",
+        "run_id": "a660a466-be52-49a4-8964-3ed271ea9f9f",
+        "finished_at": "2026-08-31T18:02:09.842Z",
+        "target": "https://believe-pulling-maximize-gas.trycloudflare.com",
+        "dashboard_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/test-cases/c7572414-bcad-4caa-ae37-370939386c90",
+        "execution_url": "https://www.testsprite.com/dashboard-v3/o/07d00e39-765a-5e22-9e60-7a3a3f8826fb/projects/9006ee4c-1f41-4e82-8593-f65c21e1ad75/execution/d063a776-d72c-45e5-ad6a-4bde9f918699"
+      },
+      "local": {
+        "status": "passed",
+        "file": "testsprite/build/middleware/01_health_and_readiness_are_separate_questions.py",
+        "target": "http://127.0.0.1:9200"
+      },
+      "agrees_local_vs_cloud": true
+    }
+  ],
+  "environment": {
+    "runner": "TestSprite CLI V3, backend tests executed from TestSprite cloud",
+    "injected_globals": [
+      "__AUTH_CREDENTIAL__",
+      "__AUTH_TYPE__",
+      "__AUTH_HEADERS__",
+      "__VARS__"
+    ],
+    "not_injected": [
+      "TARGET_URL"
+    ],
+    "base_url_strategy": "literal, stamped into each test file by stamp_target_url.py before upload",
+    "exposure": {
+      "tool": "cloudflared quick tunnel",
+      "protocol": "http2",
+      "note": "hostname changes on every restart; restamp required after any restart"
+    },
+    "targets": {
+      "mcp": "https://doe-july-wildlife-chubby.trycloudflare.com",
+      "middleware": "https://believe-pulling-maximize-gas.trycloudflare.com"
+    },
+    "identity": {
+      "provider": "Auth0",
+      "tenant": "dev-dd56qu5i64yxhygz.us.auth0.com",
+      "audience": "https://api.telecom.example/v1",
+      "verifier": "jwks",
+      "claim_namespace": "https://telecom.example/",
+      "rbac_claim": "permissions",
+      "token_exp_epoch": 1788284068,
+      "token_exp_iso": "2026-09-01T17:34:28Z"
+    },
+    "guardrail_overrides_for_test_run": {
+      "TELECOM_MCP_GUARDRAIL_WRITE_ACTIONS_PER_CASE": "200"
+    },
+    "credits": {
+      "policy": "single canary before any batch",
+      "canary_test_id": "39f53f96-39d3-4373-924d-ada3eb1b44ad",
+      "canary_result": "passed in 2s"
+    }
+  },
+  "source_artifacts": {
+    "runs-mcp.json": "raw CLI batch result, MCP project",
+    "runs-middleware.json": "raw CLI batch result, middleware project",
+    "tests-mcp.json": "test catalogue, MCP project",
+    "tests-middleware.json": "test catalogue, middleware project",
+    "validation-result.json": "local execution of the identical 23 files",
+    "specs/telecom-middleware.openapi.json": "22 paths / 23 operations",
+    "specs/telecom-mcp-tools.openapi.json": "5 operations / 8 tools",
+    "bundle-toollist/": "failure bundle for the tool-list test: code.py, failure.json, meta.json, result.json, steps/"
+  }
+}
