@@ -127,6 +127,7 @@ def build_application(
     health = HealthChecker(version=__version__, clock=clock)
     health.register("telecom_middleware", chosen_backend.ping)
     health.register("idempotency_store", idempotency.ping)
+    _register_identity_probe(health, settings)
 
     logger.info("guardrail_policy_loaded", **guardrails.policy.describe())
 
@@ -139,6 +140,37 @@ def build_application(
         idempotency=idempotency,
         guardrails=guardrails,
     )
+
+
+def _register_identity_probe(health: HealthChecker, settings: Settings) -> None:
+    """Answer 'can we still verify a token' before a customer asks it for us.
+
+    Registered as optional on purpose. The JWKS document is cached, and the verifier
+    serves a stale copy rather than failing while the tenant is briefly unreachable, so
+    an identity provider blip makes this instance degraded rather than unready. Marking
+    it required would take every replica out of rotation over an outage the service is
+    specifically built to ride out.
+
+    Only registered when the tenant is actually in use. On the local verifier there is
+    nothing to reach, and a probe that always passes is a probe that teaches an
+    operator to ignore the panel.
+    """
+    if settings.identity_verifier != "jwks" or not settings.jwks_url:
+        return
+
+    jwks_url = settings.jwks_url
+
+    async def probe() -> None:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(2.0)) as client:
+            response = await client.get(jwks_url)
+            response.raise_for_status()
+            document = response.json()
+            if not document.get("keys"):
+                # A 200 with no keys is worse than a 500: every token would fail to
+                # verify and nothing in the transport would look broken.
+                raise ValueError("the JWKS document contains no keys")
+
+    health.register("identity_provider", probe, optional=True)
 
 
 def _build_redactor(settings: Settings) -> Redactor:
