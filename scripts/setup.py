@@ -109,8 +109,10 @@ def main() -> int:
     # re-run cannot invalidate tokens someone is already using.
     print("\nShared development secret")
     values = {name: read_key(ROOT / name / ".env", key) for name, key, _ in SERVICES}
-    placeholder = re.compile(r"^$|change|example|replace|your|xxx|placeholder", re.I)
-    if any(v is None or placeholder.match(v) or len(v) < 32 for v in values.values()) \
+    # `search`, not `match`: the shipped example is
+    # "dummy-local-signing-secret-change-me-32b", and the giveaway is in the middle.
+    placeholder = re.compile(r"change|example|replace|dummy|your|xxx|placeholder|secret$", re.I)
+    if any(v is None or not v or placeholder.search(v) or len(v) < 32 for v in values.values()) \
             or len(set(values.values())) != 1:
         secret = secrets.token_urlsafe(48)
         for name, key, _ in SERVICES:
