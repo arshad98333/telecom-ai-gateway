@@ -66,23 +66,23 @@ curl -s localhost:8080/kpi     | jq '.breached, [.kpis[] | {key, value}]'
 
 ## 2. Create the repository and the three branches — once
 
-The branches already exist locally. This publishes them and makes `Arshad` the default.
+The branches already exist locally. This publishes them and makes `development` the default.
 
 ```bash
 gh auth login
 gh repo create arshad98333/telecom-mcp-tools --private --source=. --remote=origin
 
-git push -u origin Arshad
+git push -u origin development
 git push origin staging production
 
-gh repo edit --default-branch Arshad
+gh repo edit --default-branch development
 ```
 
 Check what you just pushed:
 
 ```bash
 git log --oneline --graph --all | head -30
-git rev-list --count staging..Arshad     # how much is waiting to be promoted
+git rev-list --count staging..development     # how much is waiting to be promoted
 ```
 
 ---
@@ -94,8 +94,8 @@ Nothing below can be done from a sandbox: these are account-level settings.
 ```bash
 OWNER=arshad98333; REPO=telecom-mcp-tools
 
-# Arshad: CI must pass, history stays linear.
-gh api -X PUT "repos/$OWNER/$REPO/branches/Arshad/protection" --input - <<'JSON'
+# development: CI must pass, history stays linear.
+gh api -X PUT "repos/$OWNER/$REPO/branches/development/protection" --input - <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
@@ -322,7 +322,7 @@ JSON
 ## 8. The first deployment
 
 ```bash
-./scripts/promote.sh Arshad staging
+./scripts/promote.sh development staging
 gh pr merge --rebase --delete-branch=false        # once ci is green
 gh run watch                                       # cd-staging: build + deploy
 ```
@@ -361,7 +361,7 @@ az containerapp show -n telecom-mcp-staging -g rg-telecom-staging \
 # The two must be identical, digest and all.
 ```
 
-On Windows PowerShell use `./scripts/promote.ps1 Arshad staging` instead; everything
+On Windows PowerShell use `./scripts/promote.ps1 development staging` instead; everything
 else is the same.
 
 ---
@@ -372,7 +372,7 @@ The tag has to be on `production`, and `release.yml` checks it.
 
 ```bash
 git switch production && git pull
-# bump the version in pyproject.toml and add the section to CHANGELOG.md on Arshad,
+# bump the version in pyproject.toml and add the section to CHANGELOG.md on development,
 # then promote as usual. Only tag once it has reached production.
 git tag -a v1.1.0 -m "v1.1.0"
 git push origin v1.1.0
@@ -396,7 +396,7 @@ az containerapp ingress traffic set -n telecom-mcp-production -g rg-telecom-prod
 The pipeline does this for you when readiness or posture fails. Do it by hand when the
 deployment succeeded and the problem showed up afterwards.
 
-Then fix forward on `Arshad` and promote. Never deploy a hotfix straight to
+Then fix forward on `development` and promote. Never deploy a hotfix straight to
 `production`: `cd-production` will refuse it, because there is no image tagged for a
 commit staging never built.
 
@@ -437,8 +437,8 @@ make audit
 | Symptom | Cause | Fix |
 |---|---|---|
 | `cd-production` fails at "The digest staging ran, or nothing" | The commit never went through staging | Merge it into `staging` first. This is the check working. |
-| `ci` fails on "Promotion path" | A PR from the wrong branch | Only `Arshad -> staging` and `staging -> production` are allowed |
-| `ci` fails on "Not a fast-forward" | The target branch has commits the source does not | `git checkout Arshad && git merge --ff-only origin/staging`, push, re-open |
+| `ci` fails on "Promotion path" | A PR from the wrong branch | Only `development -> staging` and `staging -> production` are allowed |
+| `ci` fails on "Not a fast-forward" | The target branch has commits the source does not | `git checkout development && git merge --ff-only origin/staging`, push, re-open |
 | `make check` fails on `observability-check` | An objective changed without regenerating | `make observability` and commit |
 | Deployment succeeds, `verify_posture` fails | Environment variables did not arrive, or the image is old | `az containerapp show ... --query properties.template.containers[0].env` |
 | `az login` works, the workflow gets 403 | The federated credential subject does not match | It must be `repo:arshad98333/telecom-mcp-tools:environment:<env>`, exactly |

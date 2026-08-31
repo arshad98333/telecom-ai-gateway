@@ -2,7 +2,7 @@ name: cd-staging
 
 # The only place an image is ever built.
 #
-#   Arshad ──PR──► staging ──BUILD──► image@sha256:… ──deploy──► STAGING
+#   development ──PR──► staging ──BUILD──► image@sha256:… ──deploy──► STAGING
 #
 # Production does not build. It looks this digest up by commit sha and deploys the same
 # bytes, so "we deployed what we tested" is a property of the pipeline rather than a

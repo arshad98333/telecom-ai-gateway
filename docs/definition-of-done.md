@@ -39,8 +39,8 @@ A change is done when every line below is true. Not before.
 
 | Gate | Owner | Evidence |
 |---|---|---|
-| Code | Arshad | `make check` green on the release commit |
-| Integration | Arshad | integration suite green, clean-install job green |
+| Code | development | `make check` green on the release commit |
+| Integration | development | integration suite green, clean-install job green |
 | Security | Security Engineering | secret scan, dependency audit, authorization tests |
 | Quality | QA Lead | coverage at or above 95%, no release blocker breached |
 | End to end | QA Lead | the seven sign-off journeys pass |

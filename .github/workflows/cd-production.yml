@@ -164,7 +164,7 @@ jobs:
             echo "### Rolled back"
             echo ""
             echo "The new revision never became ready. Traffic is back on \`$previous\`."
-            echo "Fix on \`Arshad\` and promote again; do not deploy forward."
+            echo "Fix on \`development\` and promote again; do not deploy forward."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # --- The alerts are part of the release, not a thing somebody does afterwards. ---

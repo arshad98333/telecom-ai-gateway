@@ -6,7 +6,7 @@ Three branches, one artifact, two gates.
    work                     automatic                approval
     │                           │                        │
  ┌──▼───┐   PR, ff    ┌─────────▼─┐   PR, ff    ┌────────▼───┐
- │Arshad│ ──────────► │  staging  │ ──────────► │ production │
+ │development│ ──────────► │  staging  │ ──────────► │ production │
  └──┬───┘             └─────┬─────┘             └──────┬─────┘
     │ ci                    │ ci + BUILD               │ ci + PROMOTE
     │ (checks)              │ image@sha256:…           │ same digest
@@ -22,7 +22,7 @@ Three branches, one artifact, two gates.
 
 **One working branch.** Per-person branches earn their keep when the merge order
 between people is the hard problem. Here it is not, and the cost is a promotion graph
-nobody can read at three in the morning. `Arshad` is where work lands; `staging` and
+nobody can read at three in the morning. `development` is where work lands; `staging` and
 `production` are not workstreams, they are *where the work has got to*.
 
 **The branch is the deployment.** There is no "deploy" button whose relationship to git
@@ -54,12 +54,12 @@ makes about "the same artifact" quietly stops being true.
 ## The day-to-day loop
 
 ```bash
-git switch Arshad
+git switch development
 # ... work ...
 make check                       # exactly what CI runs
-git commit && git push origin Arshad
+git commit && git push origin development
 
-./scripts/promote.sh Arshad staging       # opens the PR; merge when green
+./scripts/promote.sh development staging       # opens the PR; merge when green
 ./scripts/promote.sh staging production   # opens the PR; merge, then approve
 ```
 
@@ -80,6 +80,6 @@ previous revision if either fails. The rollback target is captured before the
 deployment starts, because reading it afterwards means reading it from a system already
 in the state you are trying to escape.
 
-After a rollback: fix on `Arshad`, promote normally. Do not deploy forward. See
+After a rollback: fix on `development`, promote normally. Do not deploy forward. See
 `docs/runbook-rollback.md` for the manual path and `docs/runbook-alerts.md` for the
 three alerts that page.

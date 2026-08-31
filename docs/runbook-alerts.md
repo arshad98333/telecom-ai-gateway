@@ -137,4 +137,4 @@ customer's action happened, and the caller was not told what it produced.
 * Do not loosen a guardrail or an objective during an incident. Both are the record of
   a decision somebody made while thinking clearly, which is not the state you are in.
 * Do not deploy forward to fix a regression. Roll back first
-  (`docs/runbook-rollback.md`), then fix on `Arshad` and promote normally.
+  (`docs/runbook-rollback.md`), then fix on `development` and promote normally.

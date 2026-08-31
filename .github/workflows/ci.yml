@@ -6,21 +6,21 @@ name: ci
 #
 # The branch model is one working branch and two environment branches:
 #
-#   Arshad ──PR──► staging ──PR──► production
+#   development ──PR──► staging ──PR──► production
 #     ^              |                 |
 #     |           deploy QA       deploy PROD (approval + rollback)
 #   all work
 #
 # There is one developer branch, on purpose. Per-person branches make sense when the
 # merge order between people is the hard problem; here it is not, and the cost of the
-# extra branches is a promotion graph nobody can read at 3am. `Arshad` is where work
+# extra branches is a promotion graph nobody can read at 3am. `development` is where work
 # lands; `staging` and `production` are where it has got to.
 
 on:
   push:
-    branches: [Arshad, staging, production]
+    branches: [development, staging, production]
   pull_request:
-    branches: [Arshad, staging, production]
+    branches: [development, staging, production]
   workflow_dispatch:
 
 concurrency:
@@ -98,7 +98,7 @@ jobs:
   # --- The check that only matters on a promotion PR ------------------------------
   promotion:
     name: promotion
-    if: github.event_name == 'pull_request' && github.base_ref != 'Arshad'
+    if: github.event_name == 'pull_request' && github.base_ref != 'development'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -111,10 +111,10 @@ jobs:
           base='${{ github.base_ref }}'
           head='${{ github.head_ref }}'
           case "$base:$head" in
-            staging:Arshad|production:staging) ;;
+            staging:development|production:staging) ;;
             *)
               echo "::error title=Promotion path::$head cannot be merged into $base." \
-                   "The only promotions are Arshad -> staging and staging -> production."
+                   "The only promotions are development -> staging and staging -> production."
               exit 1
               ;;
           esac
