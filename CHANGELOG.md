@@ -6,6 +6,33 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-31
+
+### Changed
+
+- `tools/list` no longer answers an unverifiable token with an empty catalogue. No
+  token at all still returns `[]` - an anonymous caller learns nothing, including
+  whether any tool exists - but a token that fails verification now returns a
+  `token_invalid` error naming the reason. The silence was defended on the grounds that
+  the catalogue should not leak whether a name exists; it does not leak anything to
+  tell a caller its own credential is bad, and the silence cost an external test run an
+  afternoon and a full set of credits, filed as a broken v1 contract. Scope narrowing
+  stays silent: a tool omitted for want of a permission is still not announced.
+
+  **Upgrading:** a client that treats `[]` as "no tools for me" now sees an error
+  instead when its token is the problem. That is the point, but it is an observable
+  change to the error path.
+
+### Packaging
+
+- Licence declared as an SPDX expression with `license-files`, replacing the free-text
+  field and the `License :: OSI Approved` classifier PyPI has deprecated.
+- The sdist's file list is an allow-list with an unconditional `.env` exclusion on top,
+  so a populated environment file in a working directory cannot reach a public index
+  even if someone builds from one. The release workflow asserts this on the artifact
+  itself rather than trusting the configuration.
+
+
 ## [1.0.0] - 2026-08-30
 
 The first release: the version 1 tool contract, frozen.

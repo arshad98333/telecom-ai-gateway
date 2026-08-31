@@ -199,7 +199,8 @@ The separation that matters most is `domain/` against `adapters/`. Business rule
 no network, no database and no filesystem, so they are tested in milliseconds; anything
 that does touch the outside world sits behind an interface we defined, with a real
 implementation and a fake. `docs/architecture.md` has the longer version and
-`docs/decisions/` records why each significant choice was made.
+`docs/decisions/` records why each significant choice was made. `docs/RELEASING.md` is
+the release runbook, including the one-time PyPI trusted-publisher setup.
 
 ## The tools
 
