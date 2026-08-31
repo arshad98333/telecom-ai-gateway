@@ -1,0 +1,133 @@
+name: ci
+
+# GitHub only runs workflows in the repository root, so this is the pipeline for both
+# services. Each service keeps its own .github/ for when it is used standalone; those
+# files do not run from here, which is why this exists rather than duplicating them.
+#
+# Every job calls the same make target a developer runs, so nothing can pass locally
+# and fail here for a reason nobody can reproduce.
+
+on:
+  push:
+    branches: [development, staging, production, main]
+  pull_request:
+    branches: [development, staging, production, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+
+jobs:
+  check:
+    name: ${{ matrix.service }} (py${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [telecom-mcp, telecom-middleware]
+        # Both are supported, so both are tested. Testing only one is how a supported
+        # version quietly stops working.
+        python: ["3.11", "3.12"]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.service }}/uv.lock
+
+      - name: Install from the lock file
+        run: uv sync --frozen --all-extras --python ${{ matrix.python }}
+
+      - name: Fail if the lock file is out of date
+        run: uv lock --check
+
+      - name: Lint, types, tests, coverage
+        run: make check
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.service }}-py${{ matrix.python }}
+          path: ${{ matrix.service }}/coverage.xml
+          if-no-files-found: warn
+
+  # The README promises three commands. This is the job that keeps that promise true.
+  quickstart:
+    name: quickstart
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: make setup, from a clean clone
+        run: make setup
+      - name: ...and it is safe to run twice
+        run: make setup
+
+  contract:
+    name: end to end
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: e2e/uv.lock
+      # Both services in one process over a real HTTP transport, nothing stubbed
+      # between them. A renamed field or a permission that no longer lines up fails
+      # here rather than in staging.
+      - run: uv sync --frozen
+        working-directory: e2e
+      - run: uv run pytest
+        working-directory: e2e
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the secret scan reads history, not just the diff
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Dependency vulnerability audit
+        run: make audit
+
+      - name: Secret scan of the whole history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Static security analysis
+        run: |
+          uv run --with bandit bandit -r telecom-mcp/src telecom-middleware/src -q
+
+  container:
+    name: container (${{ matrix.service }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [telecom-mcp, telecom-middleware]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image and prove it answers readiness
+        working-directory: ${{ matrix.service }}
+        run: make docker-smoke
