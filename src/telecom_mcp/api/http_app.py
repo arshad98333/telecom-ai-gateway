@@ -20,6 +20,8 @@ from starlette.routing import Mount, Route
 from telecom_mcp.api.container import Application
 from telecom_mcp.api.server import TelecomMCPServer
 from telecom_mcp.api.tokens import bind_request_token, reset_request_token
+from telecom_mcp.observability.kpi import build_kpi_report
+from telecom_mcp.observability.slo import evaluate_slos
 
 MCP_PATH = "/mcp"
 
@@ -54,6 +56,34 @@ def build_http_app(application: Application, server: TelecomMCPServer) -> Starle
             media_type="text/plain; version=0.0.4",
         )
 
+    async def kpis(_request: Request) -> Response:
+        """The indicators and the objectives, in one answer, for humans.
+
+        ``/metrics`` is for a scraper and says nothing about what any of the numbers
+        mean. This endpoint exists because the first question in an incident is
+        "which objective is breached", and answering it should not require a working
+        dashboard, a working Grafana and a working query.
+
+        It is derived entirely from the same registry ``/metrics`` renders, so the two
+        cannot disagree, and it carries no customer data because the registry cannot:
+        the label allow-list refuses anything identifying.
+        """
+        report = build_kpi_report(application.metrics)
+        statuses = evaluate_slos(report)
+        breached = [s.to_dict() for s in statuses if s.met is False]
+        return JSONResponse(
+            {
+                "version": application.health.liveness().version,
+                "environment": application.settings.env,
+                **report.to_dict(),
+                "objectives": [status.to_dict() for status in statuses],
+                "breached": breached,
+            },
+            # A breached objective is not a broken endpoint. The status code stays 200
+            # so that a probe pointed here by mistake does not restart the container.
+            status_code=200,
+        )
+
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncIterator[None]:
         async with manager.run():
@@ -67,6 +97,7 @@ def build_http_app(application: Application, server: TelecomMCPServer) -> Starle
             Route("/healthz", liveness, methods=["GET"]),
             Route("/readyz", readiness, methods=["GET"]),
             Route("/metrics", metrics, methods=["GET"]),
+            Route("/kpi", kpis, methods=["GET"]),
             Mount(MCP_PATH, app=handle_mcp),
         ],
         lifespan=lifespan,
