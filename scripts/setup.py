@@ -160,8 +160,8 @@ def main() -> int:
   make test     both test suites
 
 Both .env files use the local verifier and an in-memory or local store. Nothing here
-reaches a real cluster or a real Auth0 tenant - see docs/SETUP-MONGODB-ATLAS.md and
-infra/auth0/README.md when you want those.""")
+reaches a real cluster or a real Auth0 tenant - GUIDE.md sections 8 and 9 when you want
+those.""")
     return 0
 
 

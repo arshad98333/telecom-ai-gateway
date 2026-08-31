@@ -6,7 +6,7 @@ for the specific record — and recorded in a hash-chained audit trail. Restrict
 wait for a named human, and the supervisor watching sees them arrive live.
 
 It holds the rules and the data. The MCP tool server in front of it holds neither; see
-`../docs/SYSTEM-DESIGN.md` for how the pieces fit.
+`../GUIDE.md` for how the pieces fit.
 
 ## Requirements
 
@@ -24,15 +24,15 @@ store, with a local token verifier, no network and no Auth0 tenant.
 
 ```bash
 make install
-make test        # 340+ tests, offline, no database, no credentials
+make test        # 374 tests, offline, no database, no credentials
 make check       # exactly what CI runs: format, lint, types, tests, coverage gate
 ```
 
 Working in VS Code? Open `../telecom.code-workspace` and follow
-[`../docs/RUN-IN-VSCODE.md`](../docs/RUN-IN-VSCODE.md): the launch configurations,
+[`../GUIDE.md`](../GUIDE.md#6-make-a-change): the launch configurations,
 tasks, `requests.http` and the MongoDB playgrounds are all set up.
 
-A pass looks like `347 passed, 43 deselected`. The MongoDB-backed contract tests are *deselected* by
+A pass looks like `374 passed, 43 deselected`. The MongoDB-backed contract tests are *deselected* by
 default, not skipped — a deselection is visible in the run header, a skip is an
 invisible failure. To run them:
 

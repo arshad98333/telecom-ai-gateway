@@ -71,4 +71,5 @@ was made.
 
 ## Before you say it is done
 
-Work through `docs/definition-of-done.md`. Every line, honestly.
+Work through the checklist in `../GUIDE.md` ("Before you open a pull request").
+Every line, honestly.

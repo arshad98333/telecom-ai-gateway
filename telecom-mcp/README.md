@@ -96,7 +96,7 @@ Four things that catch people out, all of them enforced rather than documented:
 
 Your API is expected to accept a bearer token in `Authorization`, this service's own
 credential in `X-Service-Authorization`, and to expose the endpoints listed in
-`docs/architecture.md`. The scope and role vocabulary lives in
+`../GUIDE.md`, section 5. The scope and role vocabulary lives in
 `src/telecom_mcp/domain/permissions.py`; change it there and the tool contract follows.
 
 ## Deploying it
@@ -132,7 +132,7 @@ make install
 make test
 ```
 
-A pass looks like `376 passed`. The suite runs with the network disabled, with no
+A pass looks like `649 passed`. The suite runs with the network disabled, with no
 credentials and no `.env` file, and no test is skipped for missing configuration. It
 also passes in random order — `make test` randomises it every run.
 
@@ -198,8 +198,8 @@ the stage that decided it.
 The separation that matters most is `domain/` against `adapters/`. Business rules touch
 no network, no database and no filesystem, so they are tested in milliseconds; anything
 that does touch the outside world sits behind an interface we defined, with a real
-implementation and a fake. `docs/architecture.md` has the longer version and
-`docs/decisions/` records why each significant choice was made. `docs/RELEASING.md` is
+implementation and a fake. `../GUIDE.md` has the longer version and
+`docs/decisions/` records why each significant choice was made. `../GUIDE.md` section 12 is
 the release runbook, including the one-time PyPI trusted-publisher setup.
 
 ## The tools

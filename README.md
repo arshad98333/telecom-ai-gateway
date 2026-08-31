@@ -38,6 +38,10 @@ make down                      # stop
 
 `make setup` is safe to re-run and never touches an existing `.env`.
 
+**Everything else is in [`GUIDE.md`](GUIDE.md)** — one file, in the order you need it:
+run it, understand it, change it, test it, connect a real database and a real Auth0
+tenant, ship it, and what to do when you are paged.
+
 ### Without Docker
 
 ```bash
@@ -65,8 +69,10 @@ README, lock file, Dockerfile and CI.
 
 ## Reading it
 
-1. **`docs/SYSTEM-DESIGN.md`** — the stakeholders, the data model, the RBAC matrix, how
-   an approval travels from a customer's request to a supervisor's decision.
+1. **[`GUIDE.md`](GUIDE.md)** — everything, in the order you need it: run it, understand
+   it, change it, ship it. The stakeholders, the data model, the RBAC matrix and how an
+   approval travels from a customer's request to a supervisor's decision are in sections
+   3, 4 and 10.
 2. **`docs/decisions/`** — why each non-obvious choice was made, one numbered file each.
    Start with 0002 (why there are two services) and 0006 (why the service account is
    powerless on its own).
@@ -78,10 +84,10 @@ README, lock file, Dockerfile and CI.
 
 | | |
 |---|---|
-| A real MongoDB cluster | `docs/SETUP-MONGODB-ATLAS.md`, or `docs/MONGODB-QUICKSTART.md` if you have one already |
-| A real Auth0 tenant | `infra/auth0/README.md`, then `make wire-auth0` |
-| Testing against a deployed URL | `testsprite/README.md` |
-| Working in VS Code | `docs/RUN-IN-VSCODE.md` |
+| A real MongoDB cluster | [`GUIDE.md` §8](GUIDE.md#8-the-database) |
+| A real Auth0 tenant | [`GUIDE.md` §9](GUIDE.md#9-identity-from-the-dev-secret-to-auth0) |
+| Testing against a deployed URL | [`GUIDE.md` §14](GUIDE.md#14-testing-against-a-deployed-url) |
+| Working in VS Code | [`GUIDE.md` §6](GUIDE.md#6-make-a-change) |
 | Contributing | `CONTRIBUTING.md` |
 
 MIT licensed.
