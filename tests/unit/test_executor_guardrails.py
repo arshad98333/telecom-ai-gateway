@@ -95,3 +95,51 @@ def test_an_executor_built_without_a_pipeline_is_still_guarded() -> None:
 
 def test_the_default_policy_is_the_strict_one() -> None:
     assert GuardrailPolicy() == GuardrailPolicy.strict()
+
+
+async def test_a_response_the_guardrail_refuses_never_reaches_the_caller() -> None:
+    harness = build_test_application()
+    # The response is refused for being over the size limit rather than for holding a
+    # pattern: the path under test is the output stage, not the pattern list.
+    harness.executor._guardrails = GuardrailPipeline(  # noqa: SLF001 - exercising the seam
+        GuardrailPolicy(max_output_bytes=16), harness.clock
+    )
+    result = await harness.executor.execute(a_request())
+    assert not result.ok
+    assert result.error is not None
+    assert result.error.code is ErrorCode.GUARDRAIL_BLOCKED
+
+
+async def test_the_write_is_audited_as_having_happened() -> None:
+    harness = build_test_application()
+    harness.executor._guardrails = GuardrailPipeline(  # noqa: SLF001
+        GuardrailPolicy(max_output_bytes=16), harness.clock
+    )
+    await harness.executor.execute(a_request())
+
+    record = harness.audit.records[-1]
+    assert record.action_executed is True
+    assert record.outcome is Outcome.FAILURE
+    assert record.extra["guardrail_stage"] == "output_size"
+
+
+async def test_a_replayed_result_is_guarded_again() -> None:
+    harness = build_test_application()
+    first = await harness.executor.execute(a_request())
+    assert first.ok
+
+    harness.executor._guardrails = GuardrailPipeline(  # noqa: SLF001
+        GuardrailPolicy(max_output_bytes=16), harness.clock
+    )
+    replayed = await harness.executor.execute(a_request())
+    assert not replayed.ok
+    assert replayed.error is not None
+    assert replayed.error.code is ErrorCode.GUARDRAIL_BLOCKED
+
+
+async def test_an_ordinary_response_is_returned_untouched() -> None:
+    harness = build_test_application()
+    result = await harness.executor.execute(a_request())
+    assert result.ok
+    assert result.output is not None
+    assert result.output["state"] in {"open", "queued"}

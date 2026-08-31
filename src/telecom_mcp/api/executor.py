@@ -162,7 +162,16 @@ class ToolExecutor:
 
         payload = self._project(output)
         if key is not None:
+            # Stored before the output guardrail runs, on purpose. The action already
+            # happened; a replay must see the same completed reservation, or a caller
+            # retrying after a refusal would perform the write a second time.
             await self._idempotency.complete(key, payload)
+
+        decision = self._guardrails.check_output(payload)
+        if decision.violation is not None:
+            # executed=True is the whole point of this record: the write landed and
+            # the caller was not told what it produced.
+            return self._record_guardrail_block(call, decision.violation, started, executed=True)
 
         self._record_success(call, started, deduplicated=False)
         return ToolResult(output=payload)
@@ -182,6 +191,15 @@ class ToolExecutor:
         if reservation.state is ReservationState.COMPLETED and reservation.result is not None:
             replay = dict(reservation.result)
             replay["deduplicated"] = True
+            # A stored result is replayed through the same output guardrail as a fresh
+            # one. A payload that was safe to store is not automatically safe to return
+            # under a policy that has since been tightened.
+            decision = self._guardrails.check_output(replay)
+            if decision.violation is not None:
+                blocked = self._record_guardrail_block(
+                    call, decision.violation, self._clock.monotonic(), executed=True
+                )
+                return key, blocked
             self._record_success(call, self._clock.monotonic(), deduplicated=True)
             return key, ToolResult(output=replay, deduplicated=True)
 
