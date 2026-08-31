@@ -102,17 +102,42 @@ class TelecomMCPServer:
     async def list_tools_for_caller(self) -> list[types.Tool]:
         """Only the tools the caller's identity may invoke.
 
-        An unverifiable token yields an empty list rather than an error: the catalogue
-        is not a place to leak whether a name exists.
+        Three outcomes, and the difference between the last two is the point.
+
+        *No token at all* is an empty catalogue. An anonymous caller is told nothing,
+        including whether any tool exists, which is the property worth keeping.
+
+        *A token that cannot be verified* is an error naming the reason. This used to
+        return an empty list as well, on the argument that the catalogue should not
+        leak whether a name exists - but a caller holding an expired or wrong-audience
+        token is not being told about names, it is being told about its own credential,
+        which it already has. The silence cost real time: an external test run read the
+        empty catalogue as "the contract is broken", filed it as a product defect, and
+        sent everyone to the authorization kernel over a mis-minted token.
+
+        *A verified identity* is the catalogue narrowed to what that identity may call.
+        Scope filtering still happens silently - a tool omitted for want of a scope is
+        not announced, because that genuinely would enumerate names.
         """
         token = self._tokens.current_token()
         if not token:
             return []
         try:
             identity = await self._app.executor.authorizer.verifier.verify(token)
-        except TokenVerificationError:
-            logger.warning("tool_listing_unauthenticated")
-            return []
+        except TokenVerificationError as exc:
+            logger.warning("tool_listing_token_rejected", reason=str(exc))
+            raise ToolRefusedError(
+                {
+                    "error": {
+                        "code": "token_invalid",
+                        "message": (
+                            "The access token presented with tools/list is not valid, "
+                            f"so no catalogue can be returned: {exc}"
+                        ),
+                        "operation": "tools/list",
+                    }
+                }
+            ) from exc
         return [describe(spec) for spec in visible_tools(identity.scopes, TOOL_SPECS)]
 
     async def call_tool_for_caller(

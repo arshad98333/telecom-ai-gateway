@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from telecom_mcp.api.server import TelecomMCPServer
+from telecom_mcp.api.server import TelecomMCPServer, ToolRefusedError
 from telecom_mcp.api.tokens import EnvTokenSource
 from telecom_mcp.domain.tools import BLOCKED_TOOL_NAMES
 from tests.factory import CUSTOMER, build_test_application, make_token
@@ -40,9 +40,29 @@ async def test_an_unauthenticated_caller_sees_an_empty_catalogue() -> None:
     assert await build_server("").list_tools_for_caller() == []
 
 
-async def test_an_invalid_token_yields_an_empty_catalogue_rather_than_an_error() -> None:
-    # The catalogue is not a place to leak whether a name exists.
-    assert await build_server("not.a.token").list_tools_for_caller() == []
+async def test_an_invalid_token_is_reported_rather_than_answered_with_silence() -> None:
+    """A caller holding a bad token is told about its own credential, not about names.
+
+    Deliberately different from the anonymous case above. An empty catalogue here read
+    as "the contract is broken" to everyone who saw it, including an external test run
+    that filed a mis-minted token as a product defect.
+    """
+    with pytest.raises(ToolRefusedError) as raised:
+        await build_server("not.a.token").list_tools_for_caller()
+
+    payload = raised.value.payload["error"]
+    assert payload["code"] == "token_invalid"
+    assert payload["operation"] == "tools/list"
+
+
+async def test_a_scope_the_identity_lacks_is_still_omitted_silently() -> None:
+    """Narrowing stays silent: that omission genuinely would enumerate tool names."""
+    names = {
+        tool.name
+        for tool in await build_server(make_token(scope="account:read")).list_tools_for_caller()
+    }
+
+    assert names == {"get_customer_account"}
 
 
 async def test_no_blocked_tool_is_ever_listed() -> None:
