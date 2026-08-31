@@ -12,10 +12,15 @@ terraform {
 
   # State holds client identifiers and the shape of the tenant. Keep it remote,
   # encrypted and locked; a local state file on one laptop is how two people apply
-  # conflicting changes to production.
-  backend "s3" {
-    # Filled per environment by `terraform init -backend-config=envs/<env>.backend`
-  }
+  # conflicting changes to production, and how a tenant becomes unreproducible when
+  # that laptop dies.
+  #
+  # Azure Blob Storage encrypts at rest by default and takes a blob lease for the
+  # duration of an apply, which is the locking Terraform needs - so unlike S3 there is
+  # no second resource to provision for it.
+  #
+  # Filled per environment by `terraform init -backend-config=envs/<env>.backend`.
+  backend "azurerm" {}
 }
 
 provider "auth0" {

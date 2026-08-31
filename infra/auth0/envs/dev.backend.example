@@ -1,0 +1,14 @@
+# Copy to dev.backend and fill in, then:
+#   terraform init -backend-config=envs/dev.backend
+#
+# Gitignored (*.backend), because it names your storage account. Nothing here is a
+# secret - authentication is your own Azure login, not a key in this file.
+
+resource_group_name  = "rg-telecom-tfstate"
+storage_account_name = "sttelecomtfstate"      # 3-24 chars, lowercase letters and digits only
+container_name       = "tfstate"
+key                  = "auth0/dev.tfstate"     # one key per environment, never shared
+
+# Authenticate as the signed-in user rather than with a storage account key: a key in
+# a file is a credential that cannot be revoked per-person or audited per-person.
+use_azuread_auth = true

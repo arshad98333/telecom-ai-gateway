@@ -30,19 +30,74 @@ be able to do more, add `read:resource_servers`, `create:resource_servers`,
 `read:roles`, `create:roles`, `update:roles` and `read:actions` — and grant them to a
 development tenant, not production.
 
+## State lives in Azure
+
+The backend is `azurerm`. State holds client identifiers and the shape of the tenant,
+so it is kept remote, encrypted and locked. Blob Storage encrypts at rest by default
+and takes a blob lease for the duration of an apply, which is the locking Terraform
+needs — so unlike S3 there is no second resource to provision for it.
+
+Create the storage once per subscription (not per environment):
+
+```bash
+az login
+az account set --subscription "<subscription id or name>"
+
+az group create --name rg-telecom-tfstate --location uksouth
+
+az storage account create \
+  --name sttelecomtfstate --resource-group rg-telecom-tfstate \
+  --sku Standard_LRS --kind StorageV2 \
+  --min-tls-version TLS1_2 \
+  --allow-blob-public-access false \
+  --https-only true
+
+az storage account blob-service-properties update \
+  --account-name sttelecomtfstate --resource-group rg-telecom-tfstate \
+  --enable-versioning true --enable-delete-retention true --delete-retention-days 30
+
+az storage container create \
+  --name tfstate --account-name sttelecomtfstate --auth-mode login
+```
+
+The storage account name must be globally unique, 3–24 characters, lowercase letters
+and digits only. Versioning and soft delete are not optional decoration: a corrupted or
+truncated state file is otherwise unrecoverable, and thirty days is the difference
+between a bad morning and rebuilding a tenant by hand.
+
+Grant yourself data-plane access — owning the subscription is not enough, because
+control-plane and data-plane permissions are separate in Azure Storage:
+
+```bash
+az role assignment create \
+  --role "Storage Blob Data Contributor" \
+  --assignee "$(az ad signed-in-user show --query id -o tsv)" \
+  --scope "$(az storage account show --name sttelecomtfstate \
+             --resource-group rg-telecom-tfstate --query id -o tsv)"
+```
+
+Role assignments take a minute or two to propagate. A `403` on the first `init` usually
+means it has not landed yet, not that the assignment failed.
+
 ## Apply it
 
 ```bash
 cd infra/auth0
-cp envs/dev.tfvars.example envs/dev.tfvars      # then fill it in
+cp envs/dev.tfvars.example envs/dev.tfvars        # then fill it in
+cp envs/dev.backend.example envs/dev.backend      # then fill it in
 
-export TF_VAR_auth0_management_client_id=...     # prefer the environment for secrets
+export TF_VAR_auth0_management_client_id=...      # prefer the environment for secrets
 export TF_VAR_auth0_management_client_secret=...
 
 terraform init -backend-config=envs/dev.backend
 terraform plan  -var-file=envs/dev.tfvars
 terraform apply -var-file=envs/dev.tfvars
 ```
+
+Without an Azure subscription — a throwaway tenant nobody else touches — copy
+`backend_local_override.tf.example` to `backend_local_override.tf` and run `terraform
+init` with no backend config. State then sits in this directory, gitignored. Do not do
+this for staging or production.
 
 The outputs are the four values the middleware needs:
 

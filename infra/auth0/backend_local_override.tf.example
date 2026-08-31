@@ -1,0 +1,15 @@
+# Local state, for a single-operator dev tenant.
+#
+# Copy to backend_local_override.tf (gitignored). Terraform merges *_override.tf files
+# over the configuration, replacing the azurerm backend in versions.tf, so
+# `terraform init` works before any Azure storage exists - useful for a first look at
+# the plan, and for a throwaway tenant nobody else touches.
+#
+# Do NOT use this for staging or production. State holds client identifiers and the
+# shape of the tenant; a file on one laptop is how two people apply conflicting changes
+# and how a tenant becomes unreproducible when that laptop dies.
+terraform {
+  backend "local" {
+    path = "terraform.tfstate"
+  }
+}

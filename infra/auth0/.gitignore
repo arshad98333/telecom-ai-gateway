@@ -6,3 +6,6 @@
 terraform.tfstate
 terraform.tfstate.backup
 crash.log
+
+# Local state override for a single-operator dev tenant.
+backend_local_override.tf
