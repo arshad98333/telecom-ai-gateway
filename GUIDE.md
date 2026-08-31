@@ -1093,6 +1093,11 @@ gh pr create --base production --head staging       # promote to production
 git push origin production:main                     # keep main level with production
 ```
 
+`gh` is the GitHub CLI. If it is not installed — `gh : The term 'gh' is not recognized` —
+either install it (`winget install --id GitHub.cli` on Windows, then `gh auth login`) or
+open the pull requests in the browser; nothing here requires the CLI. Plain `git push`
+works either way, because the credential manager already has your GitHub login.
+
 ### First push, if the remote is empty
 
 ```bash
@@ -1125,6 +1130,7 @@ not execute from here.
 | `security` | dependency audit, gitleaks over the whole history, bandit |
 | `container` | builds both images and proves each answers readiness |
 | `mongo` (separate workflow) | the 43 Mongo tests against an ephemeral replica set |
+| `release` (separate workflow, on a `v*.*.*` tag) | publishes `telecom-mcp-tools` to PyPI and GHCR — see [publishing](#publishing-telecom-mcp-tools-to-pypi) |
 
 ### Deploying
 
@@ -1152,49 +1158,149 @@ GitHub deploys through federated OIDC and holds no credential. The federated sub
 be `repo:arshad98333/telecom-mcp-tools:environment:<env>`, exactly; a mismatch is the `403`
 you get after `az login` works fine locally.
 
-### Cutting a release
+### Publishing `telecom-mcp-tools` to PyPI
 
-Working directory `telecom-mcp`:
+Only the tool server is published — it is the piece other people install. The middleware
+is deployed, not distributed.
+
+**The workflow lives at `.github/workflows/release.yml`, in the repository root.** GitHub
+runs only root workflows; `telecom-mcp/.github/workflows/release.yml` is kept for when that
+service is used as a standalone repository and does **not** execute from here. Every step
+in the root copy runs with `telecom-mcp` as its working directory.
+
+#### One-time setup, before the first release
+
+**1. Reserve the name with a pending publisher on PyPI.** The project does not exist on the
+index yet, so a pending publisher is what creates it on first upload. Sign in at
+<https://pypi.org>, go to **Your projects → Publishing → Add a pending publisher**
+(<https://pypi.org/manage/account/publishing/>) and fill in *exactly*:
+
+| Field | Value |
+|---|---|
+| PyPI project name | `telecom-mcp-tools` |
+| Owner | `arshad98333` |
+| Repository name | `telecom-ai-gateway` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` |
+
+> ⚠️ **The repository name is the monorepo, `telecom-ai-gateway`** — not `telecom-mcp-tools`.
+> The publisher is matched against the repository the workflow runs in, and the package
+> name is only the first column. Getting this wrong fails at the upload step with a message
+> about the trusted publisher not being configured, which reads like a PyPI outage and is
+> not.
+
+**2. Repeat on TestPyPI** at <https://test.pypi.org/manage/account/publishing/>, identically,
+but with environment name **`testpypi`**. The workflow publishes there first and installs
+from it before it touches the real index.
+
+**3. Create both environments in GitHub** — **Settings → Environments → New environment** —
+named `testpypi` and `pypi`, character for character. Add a **required reviewer to `pypi`
+only**. That approval is the last human gate before a version becomes permanent.
+
+**4. Nothing else.** There is no API token anywhere in this repository and there should
+never be one; PyPI authenticates the workflow itself over OpenID Connect.
+
+#### Cutting a release
+
+**Step 1 — bump the version**, on `development`. One place:
+
+```
+telecom-mcp/pyproject.toml     version = "1.2.0"
+```
+
+**Step 2 — describe it.** In `telecom-mcp/CHANGELOG.md`, move the Unreleased entries under
+a new heading:
+
+```markdown
+## [1.2.0] - 2026-09-01
+```
+
+CI greps for that exact version string, so the heading is not optional.
+
+**Step 3 — prove it locally, before the tag exists:**
 
 ```bash
-# 1. Bump the version in pyproject.toml — one place; everything else reads the metadata.
-# 2. Move the Unreleased entries in CHANGELOG.md under a new "## [1.2.0] - YYYY-MM-DD".
-#    Do both on `development`, then promote as usual.
-
-# 3. Prove it before the tag exists.
+cd telecom-mcp
 make check
 rm -rf dist && uv build
 uvx twine check --strict dist/*
-
-# 4. Once it has reached `production`:
-git tag -a v1.2.0 -m "telecom-mcp-tools 1.2.0"
-git push origin v1.2.0
-gh run watch
 ```
 
-The workflow order: build → artifact safety gate → TestPyPI → install from TestPyPI into an
-empty environment and run the console script → container image with signed provenance →
-**wait for your approval** → PyPI.
+**Step 4 — promote it the normal way.** `development` → `staging` → `production`, as pull
+requests. **Do not tag before it reaches `production`** — the workflow refuses a tag that
+does not point at a commit on that branch, because a published version nobody is running is
+worse than no published version.
 
-It checks things you cannot easily check by hand: that the tagged commit is an ancestor of
-`production`, that the tag matches the packaged version, that `CHANGELOG.md` contains it,
-that the built *archives* contain no `.env` and no private key (checked against the archives
-themselves, because the build configuration is what would be wrong), and that the wheel
-installs into an empty interpreter.
+**Step 5 — tag and push:**
 
-**Versioning: the tool contract is the thing being versioned.** A change to what a tool
-accepts or returns is a **major** bump and a `TOOL_CONTRACT_VERSION` bump — agents are built
-against that shape and cannot negotiate. A new optional argument, a new tool or a changed
-error path is a **minor**. Fixes are patches.
+```bash
+git switch production && git pull
+git tag -a v1.2.0 -m "telecom-mcp-tools 1.2.0"
+git push origin v1.2.0
+```
 
-One-time PyPI setup: add a *pending publisher* at
-<https://pypi.org/manage/account/publishing/> — project `telecom-mcp-tools`, owner
-`arshad98333`, repository `telecom-mcp-tools`, workflow `release.yml`, environment `pypi` —
-and repeat on TestPyPI with environment `testpypi`. Create both environments in GitHub and
-put a required reviewer on `pypi` only. **The environment names must match character for
-character**; a mismatch fails at upload with a message about the trusted publisher that
-reads like a PyPI outage and is not. There is no API token anywhere in this repository and
-there should never be one.
+**Step 6 — watch it.** `gh run watch`, or the Actions tab. The order is:
+
+```
+build ──► artifact safety gate ──► TestPyPI ──► install from TestPyPI and run it
+                                                        │
+                                                        ▼
+                                        container image + signed provenance
+                                                        │
+                                                        ▼
+                                          ⏸ waits for your approval
+                                                        │
+                                                        ▼
+                                                      PyPI
+```
+
+**Step 7 — approve.** The `pypi` job sits in "Waiting" until you click **Review deployments
+→ Approve**. Everything before that point is reversible; this is the step that is not.
+
+**Step 8 — confirm:**
+
+```bash
+uv run --with telecom-mcp-tools --no-project -- telecom-mcp --version
+pip index versions telecom-mcp-tools
+```
+
+#### What the workflow checks that you cannot easily check by hand
+
+- The tagged commit is an ancestor of `production`.
+- The tag matches the packaged version — `v1.2.0` against `version = "1.2.0"`.
+- `CHANGELOG.md` contains that version.
+- `make check` — ruff, mypy strict, the full suite, the 95% coverage floor.
+- **The built archives contain no `.env` and no private key.** Checked against the archives themselves, not against the build configuration, because the configuration is what would be wrong.
+- `twine check --strict` — the README renders on the index and the metadata is valid for it.
+- The wheel installs into an empty interpreter, imports, reports the right version, carries its seed data, exposes exactly eight tools, and `telecom-mcp check-config` runs.
+- The published image starts and validates its own configuration.
+
+#### If it goes wrong
+
+| Situation | What to do |
+|---|---|
+| The `pypi` job fails but TestPyPI succeeded | The artifact is identical, so it is almost always the trusted-publisher configuration on the real index or the `pypi` environment not existing. Fix it and re-run the job — **nothing was uploaded** |
+| "Trusted publisher not configured" | The owner, repository, workflow filename or environment name does not match the form. The repository is `telecom-ai-gateway` |
+| The install-from-TestPyPI step cannot find the version | The index takes a moment; the step already retries five times. If it still fails, the upload was rejected and the upload job's log says why |
+| The tag was refused as not on production | Promote first, delete the tag (`git tag -d v1.2.0 && git push --delete origin v1.2.0`), tag again |
+| **A broken version is already on PyPI** | You cannot replace it, ever. **Yank** it — Manage → Releases → Options → Yank — which leaves it installable by exact pin for anyone already depending on it but out of resolution, then release a fix as a new version. Deleting frees nothing: the number stays burnt |
+
+#### Version numbers
+
+Semantic versioning, and **the tool contract is the thing being versioned**. A change to
+what a tool accepts or returns is a **major** bump *and* a `TOOL_CONTRACT_VERSION` bump —
+agents are built against that shape and cannot negotiate it. A new optional argument, a new
+tool, or a changed error path is a **minor**. Fixes are patches.
+
+#### What consumers get
+
+```bash
+pip install telecom-mcp-tools[http]
+uvx --from 'telecom-mcp-tools[http]' telecom-mcp serve --transport http
+docker run --rm -p 8080:8080 \
+  -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes \
+  ghcr.io/arshad98333/telecom-mcp-tools:latest
+```
 
 ### Rolling back
 
