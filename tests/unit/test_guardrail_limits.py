@@ -22,7 +22,9 @@ def test_an_ordinary_argument_set_passes() -> None:
 
 
 def test_an_oversized_payload_is_refused_by_bytes() -> None:
-    decision = check_arguments({"note": "x" * 60, "other": ["y" * 60] * 4}, POLICY)
+    # Every individual string and array is inside its own limit; the total is not.
+    payload = {f"field{index}": ["y" * 60] * 4 for index in range(4)}
+    decision = check_arguments(payload, POLICY)
     assert not decision.allowed
     assert decision.violation is not None
     assert decision.violation.stage is GuardrailStage.ARGUMENT_SIZE

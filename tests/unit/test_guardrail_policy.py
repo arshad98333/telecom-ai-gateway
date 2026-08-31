@@ -54,7 +54,10 @@ def test_every_problem_is_reported_at_once() -> None:
 
 def test_tightening_revalidates() -> None:
     policy = GuardrailPolicy()
-    assert policy.tightened(max_argument_bytes=1_024, max_string_length=512).max_argument_bytes == 1_024
+    assert (
+        policy.tightened(max_argument_bytes=1_024, max_string_length=512).max_argument_bytes
+        == 1_024
+    )
     with pytest.raises(ConfigurationError):
         policy.tightened(max_array_items=0)
 

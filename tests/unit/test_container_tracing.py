@@ -13,7 +13,7 @@ def test_tracing_off_gives_the_no_op_tracer() -> None:
 
 def test_the_executor_uses_the_application_tracer_rather_than_its_own() -> None:
     harness = build_test_application()
-    assert harness.executor._tracer is harness.app.tracer  # noqa: SLF001
+    assert harness.executor._tracer is harness.app.tracer
 
 
 def test_the_tracing_configuration_describes_itself_without_the_secret() -> None:

@@ -29,8 +29,8 @@ from typing import Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from telecom_mcp.observability.kpi import KPIS, Direction, Kpi, KpiFamily, KpiUnit  # noqa: E402
-from telecom_mcp.observability.slo import SLOS, Comparison, Severity, Slo  # noqa: E402
+from telecom_mcp.observability.kpi import KPIS, Direction, Kpi, KpiFamily, KpiUnit
+from telecom_mcp.observability.slo import SLOS, Comparison, Severity, Slo
 
 OUT = Path(__file__).resolve().parents[1] / "infra" / "observability"
 
@@ -38,7 +38,7 @@ OUT = Path(__file__).resolve().parents[1] / "infra" / "observability"
 #: incident and long enough that a quiet minute does not read as an outage.
 WINDOW: Final = "5m"
 
-_CALLS = f'sum(rate(tool_calls_total[{WINDOW}]))'
+_CALLS = f"sum(rate(tool_calls_total[{WINDOW}]))"
 _TERMINAL = (
     f'sum(rate(tool_calls_total{{outcome=~"ok|deduplicated|failed|denied|guardrail_blocked"}}'
     f"[{WINDOW}]))"
@@ -51,8 +51,8 @@ def _outcome(outcome: str) -> str:
 
 PROMQL: Final[dict[str, str]] = {
     "tool_calls": _TERMINAL,
-    "success_ratio": f'({_outcome("ok")} + {_outcome("deduplicated")}) / clamp_min({_TERMINAL}, 1)',
-    "failure_ratio": f'{_outcome("failed")} / clamp_min({_TERMINAL}, 1)',
+    "success_ratio": f"({_outcome('ok')} + {_outcome('deduplicated')}) / clamp_min({_TERMINAL}, 1)",
+    "failure_ratio": f"{_outcome('failed')} / clamp_min({_TERMINAL}, 1)",
     "latency_p95_seconds": (
         f"histogram_quantile(0.95, sum by (le) (rate(tool_duration_seconds_bucket[{WINDOW}])))"
     ),
@@ -63,13 +63,13 @@ PROMQL: Final[dict[str, str]] = {
         f"sum(increase(tool_duration_seconds_count[{WINDOW}])) - "
         f'sum(increase(tool_duration_seconds_bucket{{le="10"}}[{WINDOW}]))'
     ),
-    "shed_ratio": f'{_outcome("shed")} / clamp_min({_TERMINAL}, 1)',
-    "deduplication_ratio": f'{_outcome("deduplicated")} / clamp_min({_TERMINAL}, 1)',
+    "shed_ratio": f"{_outcome('shed')} / clamp_min({_TERMINAL}, 1)",
+    "deduplication_ratio": f"{_outcome('deduplicated')} / clamp_min({_TERMINAL}, 1)",
     "backend_retry_ratio": (
         f'sum(rate(backend_attempts_total{{stage!="1"}}[{WINDOW}])) / '
         f"clamp_min(sum(rate(backend_attempts_total[{WINDOW}])), 1)"
     ),
-    "authorization_denial_ratio": f'{_outcome("denied")} / clamp_min({_TERMINAL}, 1)',
+    "authorization_denial_ratio": f"{_outcome('denied')} / clamp_min({_TERMINAL}, 1)",
     "guardrail_block_ratio": (
         f"sum(rate(guardrail_decisions_total[{WINDOW}])) / clamp_min({_TERMINAL}, 1)"
     ),
@@ -83,8 +83,7 @@ PROMQL: Final[dict[str, str]] = {
         f'sum(increase(tool_calls_total{{tool="schedule_callback",outcome="ok"}}[{WINDOW}]))'
     ),
     "approvals_requested": (
-        f'sum(increase(tool_calls_total{{tool="request_refund_approval",outcome="ok"}}'
-        f"[{WINDOW}]))"
+        f'sum(increase(tool_calls_total{{tool="request_refund_approval",outcome="ok"}}[{WINDOW}]))'
     ),
 }
 
@@ -131,7 +130,9 @@ KQL: Final[dict[str, str]] = {
         'calls | summarize value = todouble(countif(outcome == "guardrail_blocked")) '
         "/ todouble(max_of(count(), 1))"
     ),
-    "output_guardrail_blocks": 'calls | where stage startswith "output_" | summarize value = count()',
+    "output_guardrail_blocks": (
+        'calls | where stage startswith "output_" | summarize value = count()'
+    ),
     "tickets_created": (
         'calls | where tool == "create_support_ticket" and outcome == "ok" '
         "| summarize value = count()"
@@ -192,9 +193,7 @@ def _panel(index: int, kpi: Kpi, slo: Slo | None) -> dict[str, object]:
             },
             "overrides": [],
         },
-        "targets": [
-            {"expr": PROMQL[kpi.key], "legendFormat": kpi.title, "refId": "A"}
-        ],
+        "targets": [{"expr": PROMQL[kpi.key], "legendFormat": kpi.title, "refId": "A"}],
     }
 
 

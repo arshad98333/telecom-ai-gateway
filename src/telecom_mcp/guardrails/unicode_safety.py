@@ -67,9 +67,7 @@ _SCRIPT_RANGES: Final[tuple[tuple[str, int, int], ...]] = (
 MAX_COMBINING_RUN: Final = 3
 
 
-def check_unicode_safety(
-    arguments: dict[str, Any], policy: GuardrailPolicy
-) -> GuardrailDecision:
+def check_unicode_safety(arguments: dict[str, Any], policy: GuardrailPolicy) -> GuardrailDecision:
     """Refuse the first field that hides something or mixes confusable scripts."""
     if not policy.enabled:
         return ALLOWED

@@ -28,6 +28,9 @@ PRODUCTION = {
     "TELECOM_MCP_SERVICE_CLIENT_SECRET": "csecret",
     "TELECOM_MCP_IDEMPOTENCY_STORE": "redis",
     "TELECOM_MCP_REDIS_URL": "redis://cache:6379/0",
+    "TELECOM_MCP_TRACING_ENABLED": "true",
+    "TELECOM_MCP_TRACE_EXPORTER": "azure_monitor",
+    "TELECOM_MCP_APPLICATIONINSIGHTS_CONNECTION_STRING": "InstrumentationKey=abc;Ingestion=x",
 }
 
 

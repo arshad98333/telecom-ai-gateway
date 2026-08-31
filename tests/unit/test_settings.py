@@ -26,6 +26,13 @@ PRODUCTION_ENV = {
     "TELECOM_MCP_SERVICE_TOKEN_URL": "https://tenant.example.invalid/oauth/token",
     "TELECOM_MCP_SERVICE_CLIENT_ID": "mcp-client-id",
     "TELECOM_MCP_SERVICE_CLIENT_SECRET": "mcp-client-secret",
+    # Production refuses to start untraced, so a production fixture has to say
+    # how it is traced. That is the validator doing its job, not a test tax.
+    "TELECOM_MCP_TRACING_ENABLED": "true",
+    "TELECOM_MCP_TRACE_EXPORTER": "azure_monitor",
+    "TELECOM_MCP_APPLICATIONINSIGHTS_CONNECTION_STRING": (
+        "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://x/"
+    ),
 }
 
 

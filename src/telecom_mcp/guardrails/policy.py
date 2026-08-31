@@ -73,7 +73,9 @@ class GuardrailPolicy:
             ("write_actions_per_case", self.write_actions_per_case),
             ("max_output_bytes", self.max_output_bytes),
         )
-        problems += [f"{name} must be positive, got {value}" for name, value in positives if value <= 0]
+        problems += [
+            f"{name} must be positive, got {value}" for name, value in positives if value <= 0
+        ]
         if self.rate_limit_burst < 0:
             problems.append(f"rate_limit_burst must not be negative, got {self.rate_limit_burst}")
         if self.action_budget_window_s <= 0:

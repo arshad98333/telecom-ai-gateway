@@ -29,7 +29,7 @@ def test_the_offending_character_is_reported_as_a_code_point_not_echoed() -> Non
 
 def test_a_cyrillic_lookalike_inside_latin_text_is_refused() -> None:
     # The second character is CYRILLIC SMALL LETTER A, not LATIN SMALL LETTER A.
-    decision = check_unicode_safety({"cx_id": "pаyments"}, POLICY)
+    decision = check_unicode_safety({"cx_id": "pаyments"}, POLICY)  # noqa: RUF001
     assert decision.violation is not None
     assert decision.violation.rule == "mixed_script"
     assert "cyrillic" in decision.violation.reason

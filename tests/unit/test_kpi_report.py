@@ -15,7 +15,12 @@ def a_registry() -> Metrics:
     metrics.increment("tool_calls_total", tool="create_support_ticket", outcome="ok")
     metrics.increment("tool_calls_total", tool="create_support_ticket", outcome="deduplicated")
     metrics.increment("tool_calls_total", tool="create_support_ticket", outcome="guardrail_blocked")
-    metrics.increment("guardrail_decisions_total", tool="create_support_ticket", stage="injection", outcome="blocked")
+    metrics.increment(
+        "guardrail_decisions_total",
+        tool="create_support_ticket",
+        stage="injection",
+        outcome="blocked",
+    )
     for value in (0.05, 0.2, 0.7, 30.0):
         metrics.observe("tool_duration_seconds", value, tool="get_invoice_summary")
     metrics.increment("backend_attempts_total", tool="get_invoice_summary", stage="1", value=8)
@@ -74,6 +79,9 @@ def test_an_empty_registry_reports_zeroes_with_a_zero_sample_size() -> None:
 
 def test_the_report_serializes_with_everything_a_reader_needs() -> None:
     payload = build_kpi_report(a_registry()).to_dict()
-    first = payload["kpis"][0]  # type: ignore[index]
-    assert set(first) >= {"key", "family", "title", "unit", "direction", "value", "question"}
-    assert set(payload["families"]) == {"service", "safety", "business"}  # type: ignore[arg-type]
+    kpis = payload["kpis"]
+    families = payload["families"]
+    assert isinstance(kpis, list)
+    assert isinstance(families, dict)
+    assert set(kpis[0]) >= {"key", "family", "title", "unit", "direction", "value", "question"}
+    assert set(families) == {"service", "safety", "business"}

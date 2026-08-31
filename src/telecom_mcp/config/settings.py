@@ -252,9 +252,7 @@ class Settings(BaseSettings):
             if not self.guardrail_injection_scan:
                 unsafe.append("TELECOM_MCP_GUARDRAIL_INJECTION_SCAN must be true in production")
             if not self.guardrail_output_secret_scan:
-                unsafe.append(
-                    "TELECOM_MCP_GUARDRAIL_OUTPUT_SECRET_SCAN must be true in production"
-                )
+                unsafe.append("TELECOM_MCP_GUARDRAIL_OUTPUT_SECRET_SCAN must be true in production")
             if not self.tracing_enabled:
                 unsafe.append(
                     "TELECOM_MCP_TRACING_ENABLED must be true in production; an "

@@ -88,7 +88,7 @@ def main() -> int:
 
     secret = os.environ.get("TELECOM_MCP_LOCAL_VERIFIER_SECRET")
     if not secret:
-        print(  # noqa: T201 - a script, and this is its whole output
+        print(
             "set TELECOM_MCP_LOCAL_VERIFIER_SECRET first (at least 32 bytes)",
             file=sys.stderr,
         )
@@ -118,13 +118,13 @@ def main() -> int:
 
     if args.write_env:
         write_into_env(token)
-        print(  # noqa: T201
+        print(
             f"{ENV_KEY} in .env now holds a {args.role} token, valid {args.minutes} minutes.\n"
             "requests.http will use it on the next request you send."
         )
         return 0
 
-    print(token)  # noqa: T201
+    print(token)
     return 0
 
 

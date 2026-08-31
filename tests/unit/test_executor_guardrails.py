@@ -25,7 +25,7 @@ def a_request(**overrides: object) -> ToolRequest:
         "case_id": "case-1",
     }
     defaults.update(overrides)
-    return ToolRequest(**defaults)  # type: ignore[arg-type]
+    return ToolRequest(**defaults)
 
 
 async def test_an_injection_payload_is_refused_and_the_backend_is_untouched() -> None:
@@ -101,7 +101,7 @@ async def test_a_response_the_guardrail_refuses_never_reaches_the_caller() -> No
     harness = build_test_application()
     # The response is refused for being over the size limit rather than for holding a
     # pattern: the path under test is the output stage, not the pattern list.
-    harness.executor._guardrails = GuardrailPipeline(  # noqa: SLF001 - exercising the seam
+    harness.executor._guardrails = GuardrailPipeline(
         GuardrailPolicy(max_output_bytes=16), harness.clock
     )
     result = await harness.executor.execute(a_request())
@@ -112,7 +112,7 @@ async def test_a_response_the_guardrail_refuses_never_reaches_the_caller() -> No
 
 async def test_the_write_is_audited_as_having_happened() -> None:
     harness = build_test_application()
-    harness.executor._guardrails = GuardrailPipeline(  # noqa: SLF001
+    harness.executor._guardrails = GuardrailPipeline(
         GuardrailPolicy(max_output_bytes=16), harness.clock
     )
     await harness.executor.execute(a_request())
@@ -128,7 +128,7 @@ async def test_a_replayed_result_is_guarded_again() -> None:
     first = await harness.executor.execute(a_request())
     assert first.ok
 
-    harness.executor._guardrails = GuardrailPipeline(  # noqa: SLF001
+    harness.executor._guardrails = GuardrailPipeline(
         GuardrailPolicy(max_output_bytes=16), harness.clock
     )
     replayed = await harness.executor.execute(a_request())

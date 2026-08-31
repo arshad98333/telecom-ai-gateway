@@ -75,9 +75,7 @@ class GuardrailDecision:
         public_message: str = DEFAULT_PUBLIC_MESSAGE,
     ) -> Self:
         return cls(
-            GuardrailViolation(
-                stage=stage, rule=rule, reason=reason, public_message=public_message
-            )
+            GuardrailViolation(stage=stage, rule=rule, reason=reason, public_message=public_message)
         )
 
 

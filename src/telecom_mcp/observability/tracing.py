@@ -111,10 +111,10 @@ class _NullSpan:
     __slots__ = ()
 
     def set_attribute(self, key: str, value: str | int | float | bool) -> None:
-        return None
+        del key, value  # recorded nowhere on purpose: this is the off switch
 
     def record_failure(self, code: str) -> None:
-        return None
+        del code
 
 
 _NULL_SPAN: Final = _NullSpan()
@@ -227,9 +227,7 @@ def build_tracer(config: TracingConfig) -> Tracer:
 def _build_exporter(config: TracingConfig) -> Any:
     if config.exporter is Exporter.OTLP:
         if not config.endpoint:
-            raise ConfigurationError(
-                "exporter=otlp requires an endpoint", operation="build_tracer"
-            )
+            raise ConfigurationError("exporter=otlp requires an endpoint", operation="build_tracer")
         try:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         except ImportError as exc:  # pragma: no cover

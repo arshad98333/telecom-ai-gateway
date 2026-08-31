@@ -32,7 +32,9 @@ from telecom_mcp.guardrails.policy import GuardrailPolicy
 #: value that leaked appearing anywhere.
 SECRET_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "bearer_token": re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{20,}", re.IGNORECASE),
-    "json_web_token": re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+    "json_web_token": re.compile(
+        r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+    ),
     "private_key_block": re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
     "azure_connection_string": re.compile(
         r"(?:InstrumentationKey|AccountKey|SharedAccessKey)\s*=\s*[A-Za-z0-9+/=._-]{16,}",

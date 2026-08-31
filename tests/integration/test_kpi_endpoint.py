@@ -8,11 +8,12 @@ from starlette.applications import Starlette
 from telecom_mcp.api.http_app import build_http_app
 from telecom_mcp.api.server import TelecomMCPServer
 from telecom_mcp.api.tokens import ContextTokenSource
+from tests.factory import TestApplication as Harness  # 'Test' prefix confuses collection
 from tests.factory import build_test_application
 from tests.fakes import SequentialIds
 
 
-def build_app() -> tuple[Starlette, object]:
+def build_app() -> tuple[Starlette, Harness]:
     harness = build_test_application()
     server = TelecomMCPServer(
         harness.app, tokens=ContextTokenSource(), id_generator=SequentialIds("corr")

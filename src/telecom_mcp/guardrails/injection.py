@@ -77,9 +77,7 @@ INJECTION_PATTERNS: Final[dict[str, tuple[re.Pattern[str], ...]]] = {
 }
 
 
-def check_for_injection(
-    arguments: dict[str, Any], policy: GuardrailPolicy
-) -> GuardrailDecision:
+def check_for_injection(arguments: dict[str, Any], policy: GuardrailPolicy) -> GuardrailDecision:
     """Refuse the first free-text field that reads as an instruction."""
     if not (policy.enabled and policy.injection_scan):
         return ALLOWED

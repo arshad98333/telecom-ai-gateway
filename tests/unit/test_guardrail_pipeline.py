@@ -37,7 +37,7 @@ def a_call(**overrides: object) -> GuardedCall:
         "case_id": "case-1",
     }
     defaults.update(overrides)
-    return GuardedCall(**defaults)  # type: ignore[arg-type]
+    return GuardedCall(**defaults)
 
 
 def test_a_reasonable_call_passes_every_stage() -> None:
@@ -102,7 +102,9 @@ def test_the_output_check_is_reachable_from_the_pipeline() -> None:
 
 
 def test_reads_never_touch_the_budget_through_the_pipeline() -> None:
-    policy = GuardrailPolicy(write_actions_per_case=1, rate_limit_per_minute=6000, rate_limit_burst=100)
+    policy = GuardrailPolicy(
+        write_actions_per_case=1, rate_limit_per_minute=6000, rate_limit_burst=100
+    )
     pipeline = GuardrailPipeline(policy, SteppableClock())
     for _ in range(20):
         assert pipeline.check_input(a_call(spec=READ)).allowed

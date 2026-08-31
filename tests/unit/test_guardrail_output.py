@@ -20,7 +20,10 @@ def test_an_ordinary_response_passes() -> None:
     ("value", "rule"),
     [
         ("Bearer abcdefghijklmnopqrstuvwxyz012345", "bearer_token"),
-        ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p", "json_web_token"),
+        (
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p",
+            "json_web_token",
+        ),
         ("-----BEGIN RSA PRIVATE KEY-----", "private_key_block"),
         ("InstrumentationKey=0123456789abcdef0123", "azure_connection_string"),
         ("AKIAIOSFODNN7EXAMPLE", "aws_access_key"),

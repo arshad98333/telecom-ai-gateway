@@ -16,10 +16,7 @@ from telecom_mcp.observability.slo import (
 
 def a_report(**values: tuple[float, int]) -> KpiReport:
     return KpiReport(
-        tuple(
-            KpiValue(KPIS_BY_KEY[key], value, sample)
-            for key, (value, sample) in values.items()
-        )
+        tuple(KpiValue(KPIS_BY_KEY[key], value, sample) for key, (value, sample) in values.items())
     )
 
 
@@ -66,7 +63,9 @@ def test_an_untouched_budget_is_one() -> None:
 
 def test_half_the_tolerated_failures_spends_half_the_budget() -> None:
     # The objective is 0.995, so 0.5% is the whole allowance and 0.25% is half of it.
-    statuses = {s.slo.kpi_key: s for s in evaluate_slos(full_report(success_ratio=(0.9975, 10_000)))}
+    statuses = {
+        s.slo.kpi_key: s for s in evaluate_slos(full_report(success_ratio=(0.9975, 10_000)))
+    }
     assert round(statuses["success_ratio"].budget_remaining or 0, 3) == 0.5
 
 

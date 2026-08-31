@@ -46,13 +46,13 @@ def a_request(**overrides: object) -> ToolRequest:
         "case_id": "case-1",
     }
     defaults.update(overrides)
-    return ToolRequest(**defaults)  # type: ignore[arg-type]
+    return ToolRequest(**defaults)
 
 
 def traced() -> tuple[Any, RecordingTracer]:
     harness = build_test_application()
     tracer = RecordingTracer()
-    harness.executor._tracer = tracer  # noqa: SLF001 - exercising the seam
+    harness.executor._tracer = tracer
     return harness, tracer
 
 
