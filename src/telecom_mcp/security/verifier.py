@@ -24,10 +24,24 @@ from telecom_mcp.domain.permissions import Role, parse_scopes
 from telecom_mcp.domain.ports import Clock
 from telecom_mcp.security.identity import Identity
 
-#: Claim names. Namespaced claims are how Auth0 carries application data.
-TENANT_CLAIM = "https://telecom.example/tenant_id"
-CX_CLAIM = "https://telecom.example/cx_id"
-ROLE_CLAIM = "https://telecom.example/role"
+#: Namespaced claims are how Auth0 - and every provider that follows the same
+#: convention - carries application data. The namespace is configuration, not a
+#: constant: a different tenant uses a different one, and it must match the namespace
+#: the identity provider's post-login action writes and the one the backing API reads.
+DEFAULT_CLAIM_NAMESPACE = "https://telecom.example/"
+
+#: The default names, kept as module constants because tests and the token-minting
+#: script name them directly. Anything reading a real token goes through ClaimReader.
+TENANT_CLAIM = f"{DEFAULT_CLAIM_NAMESPACE}tenant_id"
+CX_CLAIM = f"{DEFAULT_CLAIM_NAMESPACE}cx_id"
+ROLE_CLAIM = f"{DEFAULT_CLAIM_NAMESPACE}role"
+#: Auth0 puts granted permissions here when RBAC is enabled on the API with
+#: "Add Permissions in the Access Token" (token_dialect = access_token_authz). The
+#: standard `scope` claim then carries only what the client requested - typically
+#: "openid profile email" - so reading `scope` alone sees no permissions at all and
+#: refuses every call. Read this first, fall back to `scope`, exactly as the
+#: middleware does; the two services must agree about where permissions live.
+PERMISSIONS_CLAIM = "permissions"
 SCOPE_CLAIM = "scope"
 
 #: Tokens older than this are refused even if the provider signed a longer life.
@@ -47,10 +61,32 @@ class TokenVerificationError(Exception):
     """Raised inside this module only; translated to a domain error by the caller."""
 
 
-def _identity_from_claims(claims: dict[str, Any]) -> Identity:
-    subject = claims.get(CX_CLAIM) or claims.get("sub")
-    tenant_id = claims.get(TENANT_CLAIM)
-    role_value = claims.get(ROLE_CLAIM)
+class ClaimReader:
+    """Reads the claims this service depends on, from one configured namespace."""
+
+    __slots__ = ("_namespace",)
+
+    def __init__(self, namespace: str = DEFAULT_CLAIM_NAMESPACE) -> None:
+        self._namespace = namespace
+
+    def tenant_id(self, claims: dict[str, Any]) -> Any:
+        return claims.get(f"{self._namespace}tenant_id")
+
+    def cx_id(self, claims: dict[str, Any]) -> Any:
+        return claims.get(f"{self._namespace}cx_id")
+
+    def role(self, claims: dict[str, Any]) -> Any:
+        return claims.get(f"{self._namespace}role")
+
+
+_DEFAULT_READER = ClaimReader()
+
+
+def _identity_from_claims(claims: dict[str, Any], reader: ClaimReader | None = None) -> Identity:
+    reader = reader or _DEFAULT_READER
+    subject = reader.cx_id(claims) or claims.get("sub")
+    tenant_id = reader.tenant_id(claims)
+    role_value = reader.role(claims)
     expires = claims.get("exp")
 
     if not subject or not isinstance(subject, str):
@@ -69,7 +105,9 @@ def _identity_from_claims(claims: dict[str, Any]) -> Identity:
         subject=subject,
         tenant_id=tenant_id,
         role=role,
-        granted_scopes=parse_scopes(claims.get(SCOPE_CLAIM)),
+        granted_scopes=(
+            parse_scopes(claims.get(PERMISSIONS_CLAIM)) or parse_scopes(claims.get(SCOPE_CLAIM))
+        ),
         expires_at=datetime.fromtimestamp(float(expires), tz=UTC),
         token_id=claims.get("jti"),
     )
@@ -78,7 +116,14 @@ def _identity_from_claims(claims: dict[str, Any]) -> Identity:
 class LocalVerifier:
     """HS256 verification with a shared secret. Development and tests only."""
 
-    def __init__(self, secret: str, *, clock: Clock, audience: str = "telecom-mcp-tools") -> None:
+    def __init__(
+        self,
+        secret: str,
+        *,
+        clock: Clock,
+        audience: str = "telecom-mcp-tools",
+        namespace: str = DEFAULT_CLAIM_NAMESPACE,
+    ) -> None:
         # RFC 7518 section 3.2: an HMAC key shorter than the digest is weak. A short
         # secret here would let a development convenience become a real forgery risk
         # if the local verifier ever escaped a laptop.
@@ -89,6 +134,7 @@ class LocalVerifier:
         self._secret = secret
         self._clock = clock
         self._audience = audience
+        self._reader = ClaimReader(namespace)
 
     async def verify(self, token: str) -> Identity:
         try:
@@ -103,7 +149,7 @@ class LocalVerifier:
             raise TokenVerificationError("token expired") from exc
         except jwt.PyJWTError as exc:
             raise TokenVerificationError("token could not be verified") from exc
-        return _identity_from_claims(claims)
+        return _identity_from_claims(claims, self._reader)
 
 
 JwksFetcher = Callable[[], Awaitable[dict[str, Any]]]
@@ -121,7 +167,9 @@ class JwksVerifier:
         clock: Clock,
         cache_ttl_s: float = 600.0,
         stale_if_error_s: float = 3600.0,
+        namespace: str = DEFAULT_CLAIM_NAMESPACE,
     ) -> None:
+        self._reader = ClaimReader(namespace)
         self._fetch_jwks = fetch_jwks
         self._issuer = issuer
         self._audience = audience
@@ -156,7 +204,7 @@ class JwksVerifier:
         except jwt.PyJWTError as exc:
             raise TokenVerificationError("token could not be verified") from exc
 
-        identity = _identity_from_claims(claims)
+        identity = _identity_from_claims(claims, self._reader)
         lifetime = (identity.expires_at - self._clock.now()).total_seconds()
         if lifetime > MAX_TOKEN_LIFETIME_S:
             raise TokenVerificationError("token lifetime exceeds the permitted maximum")

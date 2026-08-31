@@ -326,3 +326,50 @@ async def test_a_signature_that_does_not_match_the_published_key_is_refused(
 
     with pytest.raises(TokenVerificationError, match="could not be verified"):
         await verifier.verify(_rs256(other, kid="key-1"))
+
+
+# --- where permissions actually live in an Auth0 token ------------------------------
+
+
+def test_permissions_are_read_from_the_claim_auth0_rbac_populates() -> None:
+    """With RBAC and access_token_authz, granted permissions arrive in `permissions`
+    and `scope` holds only what the client asked for. Reading `scope` alone sees an
+    identity with no permissions and refuses every call - which is how this was found,
+    against a real tenant, after everything else was working."""
+    from telecom_mcp.domain.permissions import Scope
+    from telecom_mcp.security.verifier import _identity_from_claims
+
+    identity = _identity_from_claims(
+        {
+            "sub": "auth0|someone",
+            "exp": 4102444800,
+            "https://telecom.example/tenant_id": "tenant-eu-1",
+            "https://telecom.example/role": "customer",
+            "https://telecom.example/cx_id": "CX-1234",
+            "permissions": ["account:read", "billing:read"],
+            "scope": "openid profile email",
+        }
+    )
+
+    assert Scope.ACCOUNT_READ in identity.granted_scopes
+    assert Scope.BILLING_READ in identity.granted_scopes
+
+
+def test_the_scope_claim_is_still_read_when_there_are_no_permissions() -> None:
+    """A token from a provider without RBAC, or the local development verifier, still
+    carries a space-delimited `scope`."""
+    from telecom_mcp.domain.permissions import Scope
+    from telecom_mcp.security.verifier import _identity_from_claims
+
+    identity = _identity_from_claims(
+        {
+            "sub": "CX-1234",
+            "exp": 4102444800,
+            "https://telecom.example/tenant_id": "tenant-eu-1",
+            "https://telecom.example/role": "customer",
+            "scope": "account:read billing:read",
+        }
+    )
+
+    assert Scope.ACCOUNT_READ in identity.granted_scopes
+    assert Scope.BILLING_READ in identity.granted_scopes
