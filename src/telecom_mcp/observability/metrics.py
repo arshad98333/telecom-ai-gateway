@@ -48,6 +48,48 @@ class _Histogram:
 LabelKey = tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class HistogramSummary:
+    """An immutable read of one histogram series."""
+
+    buckets: tuple[float, ...]
+    #: One count per bucket, plus a final count for everything above the last edge.
+    counts: tuple[int, ...]
+    total: float
+    observations: int
+
+    @property
+    def mean(self) -> float:
+        return self.total / self.observations if self.observations else 0.0
+
+    def quantile(self, phi: float) -> float:
+        """Interpolate a quantile from the bucket counts.
+
+        Histogram quantiles are approximations and this one says so: the answer is the
+        upper edge of the bucket the target observation falls in, which is the same
+        thing a Prometheus `histogram_quantile` gives on coarse buckets. It is good
+        enough to alert on and not good enough to put in a contract, and the buckets
+        are chosen around the ten second tool budget so the interesting range is the
+        one with resolution.
+        """
+        if self.observations == 0:
+            return 0.0
+        target = phi * self.observations
+        cumulative = 0
+        for index, edge in enumerate(self.buckets):
+            cumulative += self.counts[index]
+            if cumulative >= target:
+                return edge
+        # Everything above the last edge: report the last edge rather than infinity,
+        # and let the +Inf bucket count tell the story of how far above it went.
+        return self.buckets[-1] if self.buckets else 0.0
+
+    @property
+    def above_last_bucket(self) -> int:
+        """Observations past the last edge. The number that matters in an incident."""
+        return self.counts[-1] if self.counts else 0
+
+
 class Metrics:
     """A tiny, thread-safe metrics registry."""
 
@@ -87,6 +129,28 @@ class Metrics:
             merged = {name: dict(series) for name, series in self._counters.items()}
             merged.update({name: dict(series) for name, series in self._gauges.items()})
             return merged
+
+    def histogram_snapshot(self) -> dict[str, dict[LabelKey, HistogramSummary]]:
+        """Bucket counts, sum and observation count for every histogram series.
+
+        The scrape path renders the same data as text. This exists because the KPI
+        endpoint has to compute a latency quantile in process, and parsing our own
+        exposition format back into numbers to do it would be an unusually silly way
+        to introduce a bug.
+        """
+        with self._lock:
+            return {
+                name: {
+                    key: HistogramSummary(
+                        buckets=hist.buckets,
+                        counts=tuple(hist.counts),
+                        total=hist.total,
+                        observations=hist.observations,
+                    )
+                    for key, hist in series.items()
+                }
+                for name, series in self._histograms.items()
+            }
 
     def render_prometheus(self) -> str:
         """Render the exposition format a scraper reads."""
