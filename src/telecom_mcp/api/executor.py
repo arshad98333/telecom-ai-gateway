@@ -41,6 +41,7 @@ from telecom_mcp.guardrails.policy import GuardrailPolicy
 from telecom_mcp.observability.logging import get_logger, request_context
 from telecom_mcp.observability.metrics import Metrics
 from telecom_mcp.observability.redaction import Redactor
+from telecom_mcp.observability.tracing import NullTracer, Span, Tracer
 from telecom_mcp.security.audit import AuditLog, Decision, Outcome
 from telecom_mcp.security.authorization import (
     AuthorizationDeniedError,
@@ -53,6 +54,11 @@ logger = get_logger(__name__)
 
 #: Told to a caller whose identical request is still running. Retryable by design.
 IN_PROGRESS_MESSAGE = "An identical request is still being processed; retry shortly."
+
+#: One span name for every tool call. The tool goes in an attribute rather than in the
+#: name: a span name that varies per tool splits one operation into eight in every
+#: latency view a backend offers, and none of the eight is the number anybody wanted.
+SPAN_NAME = "execute_tool"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +91,7 @@ class ToolExecutor:
         retry_policy: RetryPolicy,
         breaker: CircuitBreaker,
         guardrails: GuardrailPipeline | None = None,
+        tracer: Tracer | None = None,
         max_concurrent_calls: int = 100,
         tool_timeout_s: float = 10.0,
     ) -> None:
@@ -103,6 +110,9 @@ class ToolExecutor:
         # A control with an off switch defaults to on. An executor built without a
         # pipeline gets the strict policy rather than no policy.
         self._guardrails = guardrails or GuardrailPipeline(GuardrailPolicy(), clock)
+        # Tracing defaults to off. The no-op tracer is free, so there is no branch
+        # anywhere below deciding whether to open a span.
+        self._tracer = tracer or NullTracer()
 
     @property
     def authorizer(self) -> Authorizer:
@@ -115,30 +125,49 @@ class ToolExecutor:
     async def execute(self, request: ToolRequest) -> ToolResult:
         """Run one tool call. Never raises."""
         started = self._clock.monotonic()
-        with request_context(request.correlation_id, request.case_id):
+        with (
+            request_context(request.correlation_id, request.case_id),
+            self._tracer.span(SPAN_NAME, **_span_attributes(request)) as span,
+        ):
             try:
                 call = await self._authorizer.authorize(request)
             except AuthorizationDeniedError as denied:
+                _mark(span, "denied", str(denied.denial.error.code))
                 return self._record_denial(request, denied, started)
 
             guarded = _guarded(call)
             decision = self._guardrails.check_input(guarded)
             if decision.violation is not None:
-                return self._record_guardrail_block(call, decision.violation, started, executed=False)
+                _mark(span, "guardrail_blocked", "guardrail_blocked")
+                span.set_attribute("stage", str(decision.violation.stage))
+                span.set_attribute("rule", decision.violation.rule)
+                return self._record_guardrail_block(
+                    call, decision.violation, started, executed=False
+                )
 
             try:
-                return await self._execute_authorized(call, started)
+                result = await self._execute_authorized(call, started)
             except TelecomMCPError as error:
                 # Nothing happened, so a reserved action is given back rather than
                 # counted against a customer who never got their write.
                 self._guardrails.release(guarded)
+                _mark(span, "failed", str(error.code))
                 return self._record_failure(call, error, started)
             except Exception:
                 # The message is deliberately dropped: an unexpected exception is the
                 # most likely thing to carry something that must not be shown.
                 self._guardrails.release(guarded)
+                _mark(span, "failed", "internal_error")
                 logger.exception("tool_call_crashed", tool=call.spec.name)
                 return self._record_failure(call, InternalError(operation=call.spec.name), started)
+
+            if result.error is not None:
+                # The output guardrail refused after the work was done.
+                _mark(span, "guardrail_blocked", str(result.error.code))
+            else:
+                span.set_attribute("outcome", "ok")
+                span.set_attribute("deduplicated", result.deduplicated)
+            return result
 
     # --- the happy path -------------------------------------------------------------
 
@@ -412,6 +441,29 @@ class ToolExecutor:
         )
         logger.error("tool_call_failed", tool=call.spec.name, code=str(error.code))
         return ToolResult(error=error.envelope(call.correlation_id))
+
+
+def _span_attributes(request: ToolRequest) -> dict[str, str | int | float | bool]:
+    """What a span may carry about a request before it has been authorized.
+
+    The tool name is caller-supplied at this point, so a hostile one is replaced rather
+    than propagated: an unbounded span attribute is the tracing bill's version of an
+    unbounded metric label.
+    """
+    attributes: dict[str, str | int | float | bool] = {
+        "tool": request.tool_name if len(request.tool_name) < 64 else "unknown",
+        "correlation_id": request.correlation_id,
+        "contract_version": request.contract_version,
+    }
+    if request.case_id:
+        attributes["case_id"] = request.case_id
+    return attributes
+
+
+def _mark(span: Span, outcome: str, code: str) -> None:
+    """Record how a call ended on its span, without the message that came with it."""
+    span.set_attribute("outcome", outcome)
+    span.record_failure(code)
 
 
 def _guarded(call: AuthorizedCall) -> GuardedCall:
