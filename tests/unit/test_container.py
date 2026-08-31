@@ -14,12 +14,17 @@ PRODUCTION = {
     "TELECOM_MCP_ENV": "production",
     "TELECOM_MCP_BACKEND": "http",
     "TELECOM_MCP_BACKEND_BASE_URL": "https://middleware.example.invalid/api/v1",
-    "TELECOM_MCP_BACKEND_API_KEY": "dummy-key",
     "TELECOM_MCP_IDENTITY_VERIFIER": "jwks",
     "TELECOM_MCP_JWKS_URL": "https://tenant.example.invalid/.well-known/jwks.json",
     "TELECOM_MCP_JWT_ISSUER": "https://tenant.example.invalid/",
     "TELECOM_MCP_IDEMPOTENCY_STORE": "redis",
     "TELECOM_MCP_REDIS_URL": "redis://localhost:6379/0",
+    # Production fetches its own credential rather than carrying a pasted one, because
+    # an access token from the identity provider lives minutes.
+    "TELECOM_MCP_SERVICE_IDENTITY_SOURCE": "client_credentials",
+    "TELECOM_MCP_SERVICE_TOKEN_URL": "https://tenant.example.invalid/oauth/token",
+    "TELECOM_MCP_SERVICE_CLIENT_ID": "mcp-client-id",
+    "TELECOM_MCP_SERVICE_CLIENT_SECRET": "mcp-client-secret",
 }
 
 

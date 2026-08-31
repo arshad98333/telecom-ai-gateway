@@ -40,6 +40,11 @@ from telecom_mcp.observability.metrics import Metrics
 from telecom_mcp.observability.redaction import Redactor, derive_pseudonym_key
 from telecom_mcp.security.audit import AuditLog, AuditSink, FileSink, StdoutSink
 from telecom_mcp.security.authorization import Authorizer, OwnershipChecker
+from telecom_mcp.security.service_token import (
+    ClientCredentialsServiceToken,
+    ServiceTokenProvider,
+    StaticServiceToken,
+)
 from telecom_mcp.security.verifier import JwksVerifier, LocalVerifier, TokenVerifier
 
 
@@ -143,16 +148,42 @@ def _build_redactor(settings: Settings) -> Redactor:
 def _build_backend(settings: Settings, clock: Clock, id_generator: IdGenerator) -> TelecomBackend:
     if settings.backend == "fake":
         return FakeTelecomBackend(clock=clock, id_generator=id_generator)
-    if settings.backend_base_url is None or settings.backend_api_key is None:
-        raise ConfigurationError("backend=http requires a base URL and an API key")
+    if settings.backend_base_url is None:
+        raise ConfigurationError("backend=http requires a base URL")
     client: httpx.AsyncClient = build_client(
         base_url=settings.backend_base_url,
-        api_key=settings.backend_api_key.get_secret_value(),
         connect_timeout_s=settings.backend_connect_timeout_s,
         read_timeout_s=settings.backend_read_timeout_s,
         max_connections=settings.backend_max_connections,
     )
-    return HttpTelecomBackend(client)
+    return HttpTelecomBackend(client, _build_service_token(settings, clock))
+
+
+def _build_service_token(settings: Settings, clock: Clock) -> ServiceTokenProvider:
+    """How this service proves its own identity to the middleware."""
+    if settings.service_identity_source == "static":
+        if settings.backend_api_key is None:
+            raise ConfigurationError("service_identity_source=static requires an API key")
+        return StaticServiceToken(settings.backend_api_key.get_secret_value())
+
+    audience = settings.effective_service_token_audience
+    if not (
+        settings.service_token_url
+        and settings.service_client_id
+        and settings.service_client_secret
+        and audience
+    ):
+        raise ConfigurationError(
+            "service_identity_source=client_credentials requires a token URL, client id, "
+            "client secret and audience"
+        )
+    return ClientCredentialsServiceToken(
+        token_url=settings.service_token_url,
+        client_id=settings.service_client_id,
+        client_secret=settings.service_client_secret.get_secret_value(),
+        audience=audience,
+        clock=clock,
+    )
 
 
 def _build_idempotency(settings: Settings, clock: Clock) -> IdempotencyStore:
@@ -178,6 +209,7 @@ def _build_verifier(settings: Settings, clock: Clock) -> TokenVerifier:
             settings.local_verifier_secret.get_secret_value(),
             clock=clock,
             audience=settings.jwt_audience or "telecom-mcp-tools",
+            namespace=settings.claim_namespace,
         )
     if not (settings.jwks_url and settings.jwt_issuer and settings.jwt_audience):
         raise ConfigurationError("identity_verifier=jwks requires a URL, issuer and audience")
@@ -197,6 +229,7 @@ def _build_verifier(settings: Settings, clock: Clock) -> TokenVerifier:
         audience=settings.jwt_audience,
         clock=clock,
         cache_ttl_s=settings.jwks_cache_ttl_s,
+        namespace=settings.claim_namespace,
     )
 
 
