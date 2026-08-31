@@ -39,6 +39,7 @@ from telecom_mcp.observability.health import HealthChecker
 from telecom_mcp.observability.logging import configure_logging, get_logger
 from telecom_mcp.observability.metrics import Metrics
 from telecom_mcp.observability.redaction import Redactor, derive_pseudonym_key
+from telecom_mcp.observability.tracing import Tracer, build_tracer
 from telecom_mcp.security.audit import AuditLog, AuditSink, FileSink, StdoutSink
 from telecom_mcp.security.authorization import Authorizer, OwnershipChecker
 from telecom_mcp.security.service_token import (
@@ -62,6 +63,7 @@ class Application:
     backend: TelecomBackend
     idempotency: IdempotencyStore
     guardrails: GuardrailPipeline
+    tracer: Tracer
 
     async def aclose(self) -> None:
         closer = getattr(self.backend, "aclose", None)
@@ -101,6 +103,9 @@ def build_application(
     )
     authorizer = Authorizer(verifier=_build_verifier(settings, clock), ownership=ownership)
     guardrails = GuardrailPipeline(settings.guardrail_policy(), clock)
+    # Built once. The SDK installs a global provider, so building a second one per
+    # request would quietly replace the first and lose whatever it had buffered.
+    tracer = build_tracer(settings.tracing_config())
     executor = ToolExecutor(
         authorizer=authorizer,
         backend=chosen_backend,
@@ -120,6 +125,7 @@ def build_application(
             name="telecom_middleware",
         ),
         guardrails=guardrails,
+        tracer=tracer,
         max_concurrent_calls=settings.max_concurrent_tool_calls,
         tool_timeout_s=settings.tool_timeout_s,
     )
@@ -130,6 +136,7 @@ def build_application(
     _register_identity_probe(health, settings)
 
     logger.info("guardrail_policy_loaded", **guardrails.policy.describe())
+    logger.info("tracing_configured", **settings.tracing_config().describe())
 
     return Application(
         settings=settings,
@@ -139,6 +146,7 @@ def build_application(
         backend=chosen_backend,
         idempotency=idempotency,
         guardrails=guardrails,
+        tracer=tracer,
     )
 
 
