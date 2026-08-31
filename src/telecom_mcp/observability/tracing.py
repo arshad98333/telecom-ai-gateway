@@ -67,10 +67,25 @@ class TracingConfig:
     environment: str = "local"
     #: OTLP endpoint, when the exporter is otlp.
     endpoint: str | None = None
-    #: Application Insights connection string, when the exporter is azure_monitor.
+    #: Application Insights connection string, when the exporter is azure_monitor. It
+    #: contains the instrumentation key, so it is a secret and is never described,
+    #: logged or put in a span.
     connection_string: str | None = None
     #: Head sampling ratio. 1.0 traces everything, which is right until it is not.
     sample_ratio: float = 1.0
+
+    def describe(self) -> dict[str, object]:
+        """A loggable view. The connection string is reported as present or absent."""
+        return {
+            "enabled": self.enabled,
+            "exporter": str(self.exporter),
+            "service_name": self.service_name,
+            "service_version": self.service_version,
+            "environment": self.environment,
+            "endpoint": self.endpoint,
+            "connection_string": "***present***" if self.connection_string else None,
+            "sample_ratio": self.sample_ratio,
+        }
 
 
 class Span(Protocol):
@@ -223,6 +238,26 @@ def _build_exporter(config: TracingConfig) -> Any:
                 operation="build_tracer",
             ) from exc
         return OTLPSpanExporter(endpoint=config.endpoint)
+
+    if config.exporter is Exporter.AZURE_MONITOR:
+        if not config.connection_string:
+            raise ConfigurationError(
+                "exporter=azure_monitor requires an Application Insights connection "
+                "string; it is read from Key Vault in a deployment and from "
+                "APPLICATIONINSIGHTS_CONNECTION_STRING locally",
+                operation="build_tracer",
+            )
+        try:
+            from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
+        except ImportError as exc:  # pragma: no cover
+            raise ConfigurationError(
+                "the Azure Monitor exporter is not installed; "
+                "install telecom-mcp-tools[azure-monitor]",
+                operation="build_tracer",
+            ) from exc
+        # The connection string carries the instrumentation key, which is why it is a
+        # SecretStr everywhere above this line and is never logged or described.
+        return AzureMonitorTraceExporter(connection_string=config.connection_string)
 
     raise ConfigurationError(
         f"unsupported trace exporter {config.exporter}", operation="build_tracer"
