@@ -49,11 +49,14 @@ from telecom_mcp.domain.schemas import (
     ScheduleCallbackOutput,
     ToolOutput,
 )
+from telecom_mcp.security.service_token import ServiceTokenProvider, StaticServiceToken
 
 TENANT_HEADER = "X-Tenant-Id"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 CORRELATION_HEADER = "X-Correlation-Id"
 SERVICE_CREDENTIAL_HEADER = "X-Service-Authorization"
+#: The middleware serves liveness at the service root, outside the /api/<version> prefix.
+HEALTH_PATH = b"/healthz"
 #: Responses larger than this are refused rather than loaded into memory.
 MAX_RESPONSE_BYTES = 1_000_000
 
@@ -63,7 +66,6 @@ M = TypeVar("M", bound=ToolOutput)
 def build_client(
     *,
     base_url: str,
-    api_key: str,
     connect_timeout_s: float,
     read_timeout_s: float,
     max_connections: int,
@@ -82,10 +84,10 @@ def build_client(
             max_keepalive_connections=max(1, max_connections // 2),
         ),
         headers={
-            # This service's own credential proves *which service* is calling. It is
-            # deliberately not the Authorization header: that carries the customer's
-            # token, because the middleware authorizes the person, not the robot.
-            SERVICE_CREDENTIAL_HEADER: f"Bearer {api_key}",
+            # The service credential is NOT set here. In production it is a short-lived
+            # access token, so it is resolved per request from the token provider; a
+            # default header would pin the value this process started with and stop
+            # working a quarter of an hour later.
             "Accept": "application/json",
             "User-Agent": "telecom-mcp-tools/1.0",
         },
@@ -96,8 +98,13 @@ def build_client(
 class HttpTelecomBackend:
     """Calls the middleware API. Shareable across concurrent requests."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self, client: httpx.AsyncClient, service_token: ServiceTokenProvider | None = None
+    ) -> None:
         self._client = client
+        # A provider, not a string: the credential this service presents is refreshed
+        # underneath us, and every request must pick up the current one.
+        self._service_token = service_token or StaticServiceToken("")
 
     async def __aenter__(self) -> Self:
         return self
@@ -243,11 +250,21 @@ class HttpTelecomBackend:
         )
 
     async def ping(self) -> None:
+        """Readiness probe against the middleware's liveness endpoint.
+
+        Liveness is served at the root, not under the API prefix, so the URL is built
+        from the base URL's origin rather than joined onto it. Joining produced a 404
+        on every poll, which still read as "reachable" and so reported ready while
+        testing nothing but that a socket answered.
+        """
+        probe = self._client.base_url.copy_with(raw_path=HEALTH_PATH, query=None)
         try:
-            response = await self._client.get("/health")
+            response = await self._client.get(probe)
         except httpx.HTTPError as exc:
             raise BackendError(operation="ping") from exc
-        if response.status_code >= 500:
+        if response.status_code >= 400:
+            # A 404 here means the probe is pointed at the wrong place, which is a
+            # configuration fault worth failing readiness for, not noise to tolerate.
             raise BackendError(operation="ping")
 
     # --- internals ------------------------------------------------------------------
@@ -292,6 +309,12 @@ class HttpTelecomBackend:
     ) -> Any:
         call = current_call()
         headers = {TENANT_HEADER: tenant_id, **(extra_headers or {})}
+        # This service's own credential proves *which service* is calling. It is
+        # deliberately not the Authorization header: that carries the customer's token,
+        # because the middleware authorizes the person, not the robot.
+        credential = await self._service_token.token()
+        if credential:
+            headers[SERVICE_CREDENTIAL_HEADER] = f"Bearer {credential}"
         if call is not None:
             # The customer's own token. Without it the middleware refuses the call,
             # which is the property that makes a compromised service credential useless.

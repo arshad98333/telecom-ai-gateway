@@ -22,6 +22,7 @@ from telecom_mcp.domain.errors import (
     RateLimitedError,
 )
 from telecom_mcp.domain.schemas import CreateSupportTicketInput, GetCustomerAccountInput
+from telecom_mcp.security.service_token import StaticServiceToken
 
 BASE = "https://middleware.example.invalid/api/v1"
 TENANT = "tenant-eu-1"
@@ -41,11 +42,11 @@ def backend() -> HttpTelecomBackend:
     return HttpTelecomBackend(
         build_client(
             base_url=BASE,
-            api_key="dummy-key",
             connect_timeout_s=2.0,
             read_timeout_s=8.0,
             max_connections=10,
-        )
+        ),
+        StaticServiceToken("dummy-key"),
     )
 
 
@@ -192,7 +193,6 @@ async def test_an_enormous_response_is_refused_rather_than_loaded() -> None:
 def test_every_call_carries_a_connect_and_a_read_timeout() -> None:
     client = build_client(
         base_url=BASE,
-        api_key="k",
         connect_timeout_s=2.0,
         read_timeout_s=8.0,
         max_connections=10,
@@ -205,15 +205,19 @@ def test_every_call_carries_a_connect_and_a_read_timeout() -> None:
 
 def test_the_client_does_not_follow_a_redirect_off_our_base_url() -> None:
     client = build_client(
-        base_url=BASE, api_key="k", connect_timeout_s=1.0, read_timeout_s=1.0, max_connections=1
+        base_url=BASE, connect_timeout_s=1.0, read_timeout_s=1.0, max_connections=1
     )
 
     assert client.follow_redirects is False
 
 
+#: Liveness sits at the service root, not under the API prefix the tools use.
+HEALTH_URL = "https://middleware.example.invalid/healthz"
+
+
 @respx.mock
 async def test_readiness_fails_when_the_middleware_is_unhealthy() -> None:
-    respx.get(f"{BASE}/health").mock(return_value=httpx.Response(503))
+    respx.get(HEALTH_URL).mock(return_value=httpx.Response(503))
 
     async with backend() as client:
         with pytest.raises(BackendError):
@@ -222,10 +226,21 @@ async def test_readiness_fails_when_the_middleware_is_unhealthy() -> None:
 
 @respx.mock
 async def test_readiness_passes_when_the_middleware_answers() -> None:
-    respx.get(f"{BASE}/health").mock(return_value=httpx.Response(200, json={"ok": True}))
+    respx.get(HEALTH_URL).mock(return_value=httpx.Response(200, json={"status": "healthy"}))
 
     async with backend() as client:
         await client.ping()
+
+
+@respx.mock
+async def test_readiness_fails_when_the_probe_is_pointed_at_the_wrong_path() -> None:
+    """A 404 is a misconfiguration, not a healthy service. Reporting ready on one is
+    how a readiness check ends up asserting nothing but that a socket answered."""
+    respx.get(HEALTH_URL).mock(return_value=httpx.Response(404))
+
+    async with backend() as client:
+        with pytest.raises(BackendError):
+            await client.ping()
 
 
 # --- the remaining endpoints, so every request path has a test ----------------------
