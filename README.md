@@ -1,46 +1,87 @@
-# Telecom Agentic AI Support — platform
+# Telecom Agentic AI Support
 
-Three repositories, one system.
+A voice agent that can answer a telecom customer's questions and raise requests on
+their behalf — and cannot move money, change a contract or read someone else's account,
+because the checks that stop it are in the code and are tested.
 
-| Repository | What it is |
+Two services:
+
+| | |
 |---|---|
-| `telecom-mcp/` | The MCP tool server. Security-enforcing gateway the voice agent calls. |
-| `telecom-middleware/` | The customer data and approval service. The only writer to MongoDB. |
-| this one | The design, the Auth0 tenant as Terraform, and the end-to-end suite that proves the pieces work together. |
+| **`telecom-mcp/`** | The MCP tool server. What the voice agent calls. Enforces access; holds no business rules and never touches the database. |
+| **`telecom-middleware/`** | The API. Holds the rules and the data, and is the only writer to MongoDB. |
 
-```
-docs/SYSTEM-DESIGN.md   the data model, the RBAC matrix, the realtime design
-infra/auth0/            the Auth0 tenant: API, scopes, roles, clients, the login Action
-e2e/                    both services in one process, talking over real HTTP
-```
+Everything else is the design (`docs/`), the Auth0 tenant as Terraform (`infra/`), and
+the suites that prove the two work together (`e2e/`, `testsprite/`).
 
-## Start here
+---
 
-**Setting it up for the first time: [`docs/SETUP-MONGODB-ATLAS.md`](docs/SETUP-MONGODB-ATLAS.md)** —
-cluster, database user, network access, `.env`, demo data, and running both services.
-About twenty minutes.
+## Run it
 
-**Working in VS Code: [`docs/RUN-IN-VSCODE.md`](docs/RUN-IN-VSCODE.md)** — open
-`telecom.code-workspace`, then everything is a task or an F5: the launch configurations,
-`requests.http` for every endpoint, and MongoDB playgrounds for browsing and adding
-records.
-
-Then:
-
-1. `docs/SYSTEM-DESIGN.md` — how the stakeholders, the data and the events fit together.
-2. `telecom-middleware/README.md` — run the API against an in-memory store in one command.
-3. `telecom-mcp/README.md` — run the tool server against it.
-4. `infra/auth0/README.md` — point both at a real Auth0 tenant.
-
-## The end-to-end suite
+You need [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker, and
+`make`. Nothing else.
 
 ```bash
-cd e2e
-uv sync --frozen
-uv run pytest
+git clone https://github.com/arshad98333/telecom-ai-gateway.git
+cd telecom-ai-gateway
+make setup      # .env files, one shared dev secret, dependencies, a config check
+make demo       # Mongo + both services in Docker, seeded
 ```
 
-It runs both services in one process, with the tool server calling the middleware over
-a real HTTP transport and nothing stubbed between them. A contract disagreement between
-the two — a renamed field, a changed shape, a permission that no longer lines up — fails
-here rather than in staging.
+Then, in another terminal:
+
+```bash
+curl localhost:9000/readyz     # the API
+curl localhost:8080/readyz     # the tool server
+make down                      # stop
+```
+
+`make setup` is safe to re-run and never touches an existing `.env`.
+
+### Without Docker
+
+```bash
+make setup
+make dev        # prints the two commands, one per terminal
+```
+
+The middleware falls back to an in-memory store, so this needs no database at all.
+
+---
+
+## The commands
+
+```bash
+make            # every target, with a line each
+make test       # both test suites
+make check      # lint, types, coverage — exactly what CI runs
+make test-mongo # the MongoDB suite; needs `make up` first
+```
+
+Each service also works on its own — `make -C telecom-mcp check` — and has its own
+README, lock file, Dockerfile and CI.
+
+---
+
+## Reading it
+
+1. **`docs/SYSTEM-DESIGN.md`** — the stakeholders, the data model, the RBAC matrix, how
+   an approval travels from a customer's request to a supervisor's decision.
+2. **`docs/decisions/`** — why each non-obvious choice was made, one numbered file each.
+   Start with 0002 (why there are two services) and 0006 (why the service account is
+   powerless on its own).
+3. **`telecom-mcp/README.md`** and **`telecom-middleware/README.md`** — each service in
+   its own terms.
+4. **`docs/brief/`** — the specifications this was built to satisfy, unedited.
+
+## Going further
+
+| | |
+|---|---|
+| A real MongoDB cluster | `docs/SETUP-MONGODB-ATLAS.md`, or `docs/MONGODB-QUICKSTART.md` if you have one already |
+| A real Auth0 tenant | `infra/auth0/README.md`, then `make wire-auth0` |
+| Testing against a deployed URL | `testsprite/README.md` |
+| Working in VS Code | `docs/RUN-IN-VSCODE.md` |
+| Contributing | `CONTRIBUTING.md` |
+
+MIT licensed.

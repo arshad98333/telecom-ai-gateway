@@ -97,15 +97,16 @@ To stop it: `docker compose down`. To wipe the data too: `docker compose down -v
 
 ## Path A — Atlas
 
-Your cluster already exists: `24x7.zq6qzn.mongodb.net`, user `arshad_db_user`. Three
-things stand between it and a green check.
+You have a cluster and a database user. Three things stand between them and a green
+check. Substitute your own host and user for `<cluster-host>` and `<db-user>` below —
+Atlas shows both under **Connect**.
 
 ### 1. The password is still a placeholder
 
 `telecom-middleware/.env` currently reads:
 
 ```dotenv
-TELECOM_MW_MONGODB_URI=mongodb+srv://arshad_db_user:<db_password>@24x7.zq6qzn.mongodb.net/?appName=24x7
+TELECOM_MW_MONGODB_URI=mongodb+srv://<db-user>:<db_password>@<cluster-host>.mongodb.net/?appName=telecom
 ```
 
 Replace `<db_password>` — **angle brackets included** — with the real password. If you
@@ -163,7 +164,7 @@ Your original:
 
 ```python
 from pymongo import MongoClient
-uri = "mongodb+srv://arshad_db_user:<db_password>@24x7.zq6qzn.mongodb.net/?appName=24x7"
+uri = "mongodb+srv://<db-user>:<db_password>@<cluster-host>.mongodb.net/?appName=telecom"
 client = MongoClient(uri)
 client.admin.command("ping")
 ```
