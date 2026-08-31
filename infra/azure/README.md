@@ -1,20 +1,26 @@
 # Deploying to Azure Container Apps
 
 ```
-feat/*  ──PR──►  main  ──build──►  image@sha256:…  ──►  QA  ──approval──►  PROD
-                          │
-                    built once, here
+Arshad  ──PR──►  staging  ──build──►  image@sha256:…  ──deploy──►  STAGING
+                              │                                       │
+                        built once, here                              │ PR, fast-forward
+                                                                      v
+                                          same digest  ──approval──►  PRODUCTION
 ```
 
-One artifact, built when `main` moves, promoted unchanged. QA and production run the
-same digest; approving a release changes which resource group points at those bytes,
-never what is deployed. That is the property the whole arrangement exists to give, and
-it is why the pipeline passes a digest rather than a tag — a tag can be moved, and then
-"the thing we tested" stops meaning anything.
+One artifact, built when `staging` moves, promoted unchanged. Staging and production
+run the same digest; approving a release changes which resource group points at those
+bytes, never what is deployed. That is the property the whole arrangement exists to
+give, and it is why the pipeline passes a digest rather than a tag — a tag can be
+moved, and then "the thing we tested" stops meaning anything.
 
-The approval gate is a GitHub Environment reviewer on `prod`. The `prod` job cannot
+The production workflow does not build. It looks the digest up by the commit sha and
+refuses to deploy if there is not one, so a commit that never went through staging
+cannot reach production even if somebody pushes it there directly.
+
+The approval gate is a GitHub Environment reviewer on `production`. The job cannot
 start until a named person approves it, and what they are approving is a specific
-digest that QA has already run.
+digest that staging has already run.
 
 ## What you set up once
 
@@ -32,7 +38,7 @@ export LOCATION=uksouth
 ### 2. Shared registry
 
 One registry, not one per environment. Promotion means production pulls the exact
-image QA pulled, and that is only true if there is one copy of it.
+image Staging pulled, and that is only true if there is one copy of it.
 
 ```bash
 az group create --name rg-telecom-shared --location "$LOCATION"
@@ -48,7 +54,7 @@ alphanumeric characters.
 ### 3. A resource group and a vault per environment
 
 ```bash
-for env in qa prod; do
+for env in staging production; do
   az group create --name "rg-telecom-$env" --location "$LOCATION"
 
   az keyvault create --name "kv-telecom-$env" --resource-group "rg-telecom-$env" \
@@ -64,7 +70,7 @@ same place as every other permission in the subscription, and are revoked the sa
 The Bicep expects these names. Anything else is a plain environment variable.
 
 ```bash
-for env in qa prod; do
+for env in staging production; do
   az keyvault secret set --vault-name "kv-telecom-$env" \
     --name telecom-mcp-service-client-secret --value "<Auth0 M2M client secret>"
 
@@ -73,10 +79,18 @@ for env in qa prod; do
 
   az keyvault secret set --vault-name "kv-telecom-$env" \
     --name telecom-mcp-redis-url --value "rediss://:<password>@<host>:6380/0"
+
+  # The Application Insights connection string carries the instrumentation key, so it
+  # is a secret like the rest rather than a template parameter.
+  az keyvault secret set --vault-name "kv-telecom-$env" \
+    --name telecom-mcp-appinsights-connection-string \
+    --value "$(az monitor app-insights component show \
+                 --app "appi-telecom-$env" --resource-group "rg-telecom-$env" \
+                 --query connectionString -o tsv)"
 done
 ```
 
-Use different values per environment. A production secret that also works in QA is a
+Use different values per environment. A production secret that also works in Staging is a
 production secret with a much larger blast radius.
 
 Deduplication has to be shared across replicas, so Redis is not optional here — the
@@ -96,7 +110,7 @@ export SP_ID="$(az ad sp show --id "$APP_ID" --query id -o tsv)"
 
 # One credential per environment. Scoped this narrowly, a pull request from a fork
 # cannot obtain a token that deploys anything.
-for env in qa prod; do
+for env in staging production; do
   az ad app federated-credential create --id "$APP_ID" --parameters "{
     \"name\": \"github-$env\",
     \"issuer\": \"https://token.actions.githubusercontent.com\",
@@ -111,7 +125,7 @@ to the registry, and nothing else. Note it is **not** granted read on Key Vault 
 — the pipeline never reads them; the app's own identity does, at start-up.
 
 ```bash
-for env in qa prod; do
+for env in staging production; do
   az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
     --role Contributor --scope "/subscriptions/$SUB/resourceGroups/rg-telecom-$env"
 done
@@ -121,7 +135,7 @@ az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-typ
 
 # Assigning AcrPull and Key Vault Secrets User to the app's identity is done by the
 # Bicep itself, which needs this one extra permission to do it.
-for env in qa prod; do
+for env in staging production; do
   az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-type ServicePrincipal \
     --role "Role Based Access Control Administrator" \
     --scope "/subscriptions/$SUB/resourceGroups/rg-telecom-$env"
@@ -133,9 +147,9 @@ az role assignment create --assignee-object-id "$SP_ID" --assignee-principal-typ
 
 ### 6. GitHub Environments
 
-**Settings → Environments → New environment**, twice: `qa` and `prod`.
+**Settings → Environments → New environment**, twice: `staging` and `production`.
 
-On **`prod`** only:
+On **`production`** only:
 - **Required reviewers** — the people who may approve a release. This is the approval
   gate; without it the promotion is automatic and the diagram is a lie.
 - **Deployment branches: selected branches → `main`**. A release can then only come
@@ -152,22 +166,22 @@ Repository-level variables (**Settings → Variables → Actions**), the same fo
 | `REGISTRY_SERVER` | `acrtelecomshared.azurecr.io` |
 | `REGISTRY_RESOURCE_ID` | `az acr show --name acrtelecomshared --query id -o tsv` |
 
-Per-environment variables, set on each environment separately — this is where QA and
+Per-environment variables, set on each environment separately — this is where Staging and
 production differ, and the only place they should:
 
-| Variable | QA | PROD |
+| Variable | Staging | Production |
 |---|---|---|
-| `RESOURCE_GROUP` | `rg-telecom-qa` | `rg-telecom-prod` |
-| `KEY_VAULT_NAME` | `kv-telecom-qa` | `kv-telecom-prod` |
-| `BACKEND_BASE_URL` | your QA API | your production API |
+| `RESOURCE_GROUP` | `rg-telecom-staging` | `rg-telecom-production` |
+| `KEY_VAULT_NAME` | `kv-telecom-staging` | `kv-telecom-production` |
+| `BACKEND_BASE_URL` | your Staging API | your production API |
 | `JWKS_URL` | tenant JWKS, no trailing slash | same shape |
 | `JWT_ISSUER` | tenant issuer, **with** trailing slash | same shape |
 | `JWT_AUDIENCE` | your API identifier | your API identifier |
 | `CLAIM_NAMESPACE` | `https://your-company.example/` | same |
 | `SERVICE_TOKEN_URL` | `https://<tenant>/oauth/token` | same |
-| `SERVICE_CLIENT_ID` | QA M2M client id | production M2M client id |
+| `SERVICE_CLIENT_ID` | Staging M2M client id | production M2M client id |
 
-Separate Auth0 tenants for QA and production if you can. Sharing one means a token
+Separate Auth0 tenants for Staging and production if you can. Sharing one means a token
 minted for testing is accepted by production.
 
 ### 7. Branch protection on `main`
@@ -180,7 +194,7 @@ minted for testing is accepted by production.
 - Require linear history
 - Do not allow bypassing, including for administrators
 
-Without this, `main` is not a reviewed branch and the approval on `prod` is guarding a
+Without this, `main` is not a reviewed branch and the approval on `production` is guarding a
 door with no walls around it.
 
 ## Then: delivering a change
@@ -194,31 +208,31 @@ git push -u origin feat/your-change
 Open the pull request. CI runs; `validate-infra` compiles the template if you touched
 it. Merge when it is green and reviewed.
 
-On merge, `cd` builds the image once, pushes it by digest, deploys it to QA and waits
-for `/readyz` to report healthy. Then `prod` sits in **Actions → the run → Review
-deployments** until an approver releases it. They approve a digest that QA has run, not
+On merge, `cd` builds the image once, pushes it by digest, deploys it to Staging and waits
+for `/readyz` to report healthy. Then `production` sits in **Actions → the run → Review
+deployments** until an approver releases it. They approve a digest that Staging has run, not
 a promise.
 
 If production's readiness check fails after deployment, the workflow returns traffic to
 the previous revision and marks the run failed. Rolling back by hand is the same idea:
 
 ```bash
-az containerapp revision list --name telecom-mcp-prod --resource-group rg-telecom-prod -o table
-az containerapp ingress traffic set --name telecom-mcp-prod \
-  --resource-group rg-telecom-prod --revision-weight <previous-revision>=100
+az containerapp revision list --name telecom-mcp-production --resource-group rg-telecom-production -o table
+az containerapp ingress traffic set --name telecom-mcp-production \
+  --resource-group rg-telecom-production --revision-weight <previous-revision>=100
 ```
 
 ## Deploying by hand, once, to check it
 
 ```bash
-az deployment group create --resource-group rg-telecom-qa \
+az deployment group create --resource-group rg-telecom-staging \
   --template-file infra/azure/main.bicep \
-  --parameters environmentName=qa \
+  --parameters environmentName=staging \
     image='acrtelecomshared.azurecr.io/telecom-mcp-tools@sha256:...' \
     revisionSuffix=manual1 \
     registryServer='acrtelecomshared.azurecr.io' \
     registryResourceId="$(az acr show --name acrtelecomshared --query id -o tsv)" \
-    keyVaultName=kv-telecom-qa \
+    keyVaultName=kv-telecom-staging \
     backendBaseUrl='https://your-api/api/v1' \
     jwksUrl='https://your-tenant/.well-known/jwks.json' \
     jwtIssuer='https://your-tenant/' \
@@ -229,7 +243,7 @@ az deployment group create --resource-group rg-telecom-qa \
 ```
 
 `az deployment group what-if` with the same arguments shows what would change without
-changing it. The pipeline runs exactly that before every QA deployment.
+changing it. The pipeline runs exactly that before every Staging deployment.
 
 ## What this is not
 

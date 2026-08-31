@@ -2,9 +2,9 @@
   The tool server, on Azure Container Apps. One file, deployed twice - once per
   environment - with the image pinned by digest.
 
-  Digest, not tag: the promotion from QA to production must be the *same* artifact that
-  was tested, and a tag can be moved. Passing a digest makes "deploy what we tested"
-  a property of the pipeline rather than a convention people remember.
+  Digest, not tag: the promotion from staging to production must be the *same*
+  artifact that was tested, and a tag can be moved. Passing a digest makes "deploy
+  what we tested" a property of the pipeline rather than a convention people remember.
 
   Secrets are Key Vault references resolved by the app's managed identity at start-up.
   Nothing secret is passed as a parameter, so nothing secret reaches the deployment
@@ -13,8 +13,8 @@
 
 targetScope = 'resourceGroup'
 
-@description('qa or prod. Used in every resource name so two environments cannot collide.')
-@allowed(['qa', 'prod'])
+@description('staging or production. In every resource name, so the two cannot collide.')
+@allowed(['staging', 'production'])
 param environmentName string
 
 @description('Azure region. Defaults to the resource group\'s.')
@@ -45,9 +45,31 @@ param serviceTokenUrl string
 param serviceClientId string
 param logLevel string = 'INFO'
 
-@description('Scale floor. Production keeps one warm; QA may scale to zero.')
+// --- Telemetry -------------------------------------------------------------------
+// The connection string is a secret (it carries the instrumentation key), so it is a
+// Key Vault reference like every other secret rather than a parameter. Nothing secret
+// reaches the deployment history, the pipeline log, or `az deployment show`.
+// A string, not a number: Bicep has no float type, and an int divided by 100 is zero,
+// which would silently turn tracing off in production while the template still read as
+// if it were on.
+@description('Head sampling ratio, 0.0 to 1.0. Production samples down; staging traces all.')
+param traceSampleRatio string = (environmentName == 'production') ? '0.2' : '1.0'
+
+// --- Guardrails ------------------------------------------------------------------
+// Only the two thresholds that genuinely differ between environments are parameters.
+// Everything else stays at the strict default, because a knob that exists is a knob
+// that gets turned.
+@description('Sustained tool calls per minute, per identity.')
+@minValue(1)
+param guardrailRateLimitPerMinute int = (environmentName == 'production') ? 120 : 600
+
+@description('Irreversible actions allowed on one case before a human is required.')
+@minValue(1)
+param guardrailWriteActionsPerCase int = 5
+
+@description('Scale floor. Production keeps one warm; staging may scale to zero.')
 @minValue(0)
-param minReplicas int = (environmentName == 'prod') ? 1 : 0
+param minReplicas int = (environmentName == 'production') ? 1 : 0
 
 @minValue(1)
 param maxReplicas int = 10
@@ -112,7 +134,7 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   tags: tags
   properties: {
     sku: { name: 'PerGB2018' }
-    retentionInDays: (environmentName == 'prod') ? 90 : 30
+    retentionInDays: (environmentName == 'production') ? 90 : 30
   }
 }
 
@@ -176,6 +198,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           keyVaultUrl: '${vault.properties.vaultUri}secrets/telecom-mcp-backend-api-key'
           identity: identity.id
         }
+        {
+          name: 'appinsights-connection-string'
+          keyVaultUrl: '${vault.properties.vaultUri}secrets/telecom-mcp-appinsights-connection-string'
+          identity: identity.id
+        }
       ]
     }
     template: {
@@ -216,6 +243,32 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             // write. The validator refuses 'memory' in production for that reason.
             { name: 'TELECOM_MCP_IDEMPOTENCY_STORE', value: 'redis' }
             { name: 'TELECOM_MCP_REDIS_URL', secretRef: 'redis-url' }
+
+            // Tracing is not optional in production: the settings validator refuses to
+            // start without it, because an incident without traces is an incident
+            // investigated by guessing.
+            { name: 'TELECOM_MCP_TRACING_ENABLED', value: 'true' }
+            { name: 'TELECOM_MCP_TRACE_EXPORTER', value: 'azure_monitor' }
+            {
+              name: 'TELECOM_MCP_APPLICATIONINSIGHTS_CONNECTION_STRING'
+              secretRef: 'appinsights-connection-string'
+            }
+            { name: 'TELECOM_MCP_TRACE_SAMPLE_RATIO', value: traceSampleRatio }
+
+            // The three switches the validator refuses to start without are set
+            // explicitly rather than left to a default, so a reader of this file can
+            // see that they are on without going and reading the settings module.
+            { name: 'TELECOM_MCP_GUARDRAILS_ENABLED', value: 'true' }
+            { name: 'TELECOM_MCP_GUARDRAIL_INJECTION_SCAN', value: 'true' }
+            { name: 'TELECOM_MCP_GUARDRAIL_OUTPUT_SECRET_SCAN', value: 'true' }
+            {
+              name: 'TELECOM_MCP_GUARDRAIL_RATE_LIMIT_PER_MINUTE'
+              value: string(guardrailRateLimitPerMinute)
+            }
+            {
+              name: 'TELECOM_MCP_GUARDRAIL_WRITE_ACTIONS_PER_CASE'
+              value: string(guardrailWriteActionsPerCase)
+            }
           ]
           probes: [
             {
