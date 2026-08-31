@@ -11,10 +11,32 @@
       "group": "build"
     },
     {
-      "label": "Mint a token for the tools server",
-      "detail": "Prints a token both this service and the middleware accept",
+      "label": "Mint a token (writes it into .env)",
+      "detail": "Sets DEV_TOKEN so requests.http picks it up. Both services accept it",
+      "type": "shell",
+      "command": "uv run --env-file .env python scripts/mint_dev_token.py --role ${input:role} --write-env",
+      "problemMatcher": []
+    },
+    {
+      "label": "Mint a narrower token, to watch a refusal",
+      "detail": "A token holding only the scopes you pick, so RBAC has something to refuse",
+      "type": "shell",
+      "command": "uv run --env-file .env python scripts/mint_dev_token.py --scope \"${input:scope}\" --write-env",
+      "problemMatcher": []
+    },
+    {
+      "label": "Print a token, without touching .env",
       "type": "shell",
       "command": "uv run --env-file .env python scripts/mint_dev_token.py --role ${input:role}",
+      "problemMatcher": []
+    },
+    {
+      "label": "Smoke test the whole chain",
+      "detail": "Nine checks against both running services",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\smoke.ps1",
+      "linux": { "command": "pwsh -NoProfile -File ./scripts/smoke.ps1" },
+      "osx": { "command": "pwsh -NoProfile -File ./scripts/smoke.ps1" },
       "problemMatcher": []
     },
     {
@@ -51,6 +73,18 @@
       "description": "Which identity should the token carry?",
       "options": ["customer", "support_agent", "supervisor_approver", "admin_security"],
       "default": "customer"
+    },
+    {
+      "id": "scope",
+      "type": "pickString",
+      "description": "Which scopes should the token carry?",
+      "options": [
+        "account:read",
+        "account:read service:read",
+        "account:read billing:read",
+        "billing:read"
+      ],
+      "default": "account:read"
     },
     {
       "id": "auditPath",
