@@ -20,6 +20,12 @@ PRODUCTION_ENV = {
     "TELECOM_MCP_JWT_AUDIENCE": "telecom-mcp-tools",
     "TELECOM_MCP_IDEMPOTENCY_STORE": "redis",
     "TELECOM_MCP_REDIS_URL": "redis://localhost:6379/0",
+    # An access token from the identity provider lives minutes, so production fetches
+    # and refreshes its own rather than carrying one pasted into configuration.
+    "TELECOM_MCP_SERVICE_IDENTITY_SOURCE": "client_credentials",
+    "TELECOM_MCP_SERVICE_TOKEN_URL": "https://tenant.example.invalid/oauth/token",
+    "TELECOM_MCP_SERVICE_CLIENT_ID": "mcp-client-id",
+    "TELECOM_MCP_SERVICE_CLIENT_SECRET": "mcp-client-secret",
 }
 
 
@@ -125,8 +131,10 @@ def test_describing_the_settings_cannot_leak_a_secret() -> None:
     described = settings.describe()
 
     assert described["backend_api_key"] == "***redacted***"
-    assert "dummy-key" not in repr(settings)
-    assert "dummy-key" not in str(described)
+    assert described["service_client_secret"] == "***redacted***"
+    for secret in ("dummy-key", "mcp-client-secret"):
+        assert secret not in repr(settings)
+        assert secret not in str(described)
 
 
 def test_settings_are_frozen_so_nothing_can_mutate_them_at_runtime() -> None:

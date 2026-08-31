@@ -26,6 +26,7 @@ from telecom_mcp.domain.errors import ConfigurationError
 Environment = Literal["local", "staging", "production"]
 BackendKind = Literal["fake", "http"]
 VerifierKind = Literal["local", "jwks"]
+ServiceIdentitySource = Literal["static", "client_credentials"]
 IdempotencyStoreKind = Literal["memory", "redis"]
 AuditSinkKind = Literal["stdout", "file"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -58,6 +59,19 @@ class Settings(BaseSettings):
     backend_read_timeout_s: float = Field(default=8.0, gt=0, le=60)
     backend_max_connections: int = Field(default=50, ge=1, le=1000)
 
+    # --- This service's own credential ---
+    # static             the API key below, sent unchanged. Development, or a
+    #                    deployment where the credential is a long-lived secret.
+    # client_credentials fetched from the identity provider and refreshed before it
+    #                    expires. Required in production: an Auth0 access token lives
+    #                    minutes, so a pasted one stops working almost immediately.
+    service_identity_source: ServiceIdentitySource = "static"
+    service_token_url: str | None = None
+    service_client_id: str | None = None
+    service_client_secret: SecretStr | None = None
+    #: Defaults to jwt_audience: the credential is minted for the API being called.
+    service_token_audience: str | None = None
+
     # --- Identity ---
     identity_verifier: VerifierKind = "local"
     jwks_url: str | None = None
@@ -65,6 +79,10 @@ class Settings(BaseSettings):
     jwt_audience: str | None = None
     local_verifier_secret: SecretStr | None = None
     jwks_cache_ttl_s: float = Field(default=600.0, ge=30, le=86400)
+    #: Prefix on the custom claims that carry tenant, role and customer reference.
+    #: Must match the namespace the identity provider writes and the backing API reads;
+    #: three services disagreeing about this is a whole afternoon.
+    claim_namespace: str = "https://telecom.example/"
 
     # --- Reliability ---
     tool_timeout_s: float = Field(default=10.0, gt=0, le=60)
@@ -91,8 +109,27 @@ class Settings(BaseSettings):
         if self.backend == "http":
             if not self.backend_base_url:
                 missing.append("TELECOM_MCP_BACKEND_BASE_URL (required when BACKEND=http)")
-            if self.backend_api_key is None:
-                missing.append("TELECOM_MCP_BACKEND_API_KEY (required when BACKEND=http)")
+            if self.service_identity_source == "static" and self.backend_api_key is None:
+                missing.append(
+                    "TELECOM_MCP_BACKEND_API_KEY (required when BACKEND=http "
+                    "and SERVICE_IDENTITY_SOURCE=static)"
+                )
+
+        if self.service_identity_source == "client_credentials":
+            for name, value in (
+                ("TELECOM_MCP_SERVICE_TOKEN_URL", self.service_token_url),
+                ("TELECOM_MCP_SERVICE_CLIENT_ID", self.service_client_id),
+                ("TELECOM_MCP_SERVICE_CLIENT_SECRET", self.service_client_secret),
+            ):
+                if not value:
+                    missing.append(
+                        f"{name} (required when SERVICE_IDENTITY_SOURCE=client_credentials)"
+                    )
+            if not (self.service_token_audience or self.jwt_audience):
+                missing.append(
+                    "TELECOM_MCP_SERVICE_TOKEN_AUDIENCE or TELECOM_MCP_JWT_AUDIENCE "
+                    "(the credential must be minted for the API being called)"
+                )
 
         if self.identity_verifier == "jwks":
             if not self.jwks_url:
@@ -104,6 +141,12 @@ class Settings(BaseSettings):
         elif self.local_verifier_secret is None:
             missing.append(
                 "TELECOM_MCP_LOCAL_VERIFIER_SECRET (required when IDENTITY_VERIFIER=local)"
+            )
+
+        if self.claim_namespace and not self.claim_namespace.endswith("/"):
+            raise ValueError(
+                "TELECOM_MCP_CLAIM_NAMESPACE must end with '/', or every claim key "
+                "silently changes and no token verifies"
             )
 
         if self.idempotency_store == "redis" and not self.redis_url:
@@ -119,6 +162,12 @@ class Settings(BaseSettings):
                 unsafe.append("TELECOM_MCP_BACKEND must be 'http' in production")
             if self.identity_verifier != "jwks":
                 unsafe.append("TELECOM_MCP_IDENTITY_VERIFIER must be 'jwks' in production")
+            if self.service_identity_source != "client_credentials":
+                unsafe.append(
+                    "TELECOM_MCP_SERVICE_IDENTITY_SOURCE must be 'client_credentials' in "
+                    "production; a pasted access token expires in minutes and a "
+                    "long-lived shared secret cannot be rotated without a restart"
+                )
             if self.idempotency_store != "redis":
                 unsafe.append(
                     "TELECOM_MCP_IDEMPOTENCY_STORE must be 'redis' in production, "
@@ -137,6 +186,11 @@ class Settings(BaseSettings):
                 f"{self.tool_timeout_s:.1f}s (attempts configured: {attempts})"
             )
         return self
+
+    @property
+    def effective_service_token_audience(self) -> str | None:
+        """The audience the service credential is minted for."""
+        return self.service_token_audience or self.jwt_audience
 
     def describe(self) -> dict[str, object]:
         """Loggable view of the settings. Secrets are replaced, never masked in place."""
