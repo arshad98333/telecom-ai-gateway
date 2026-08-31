@@ -7,21 +7,22 @@ contracts actually break."""
 
 import base64
 import json
+import os
 
 import requests
 
-#: The base URL is a LITERAL, not an injected global.
+#: The target comes from the environment, not from the source.
 #:
-#: TestSprite's V3 backend runner injects the credential block (__AUTH_CREDENTIAL__,
-#: __AUTH_TYPE__, __AUTH_HEADERS__) and __VARS__ for captured values - and nothing
-#: else. A test that reads an injected base-URL global fails automated validation
-#: before a single request is made. The target is baked into the code, which is why
-#: --target-url alone is not enough, and why rotating a tunnel means restamping every
-#: test.
+#: TARGET_URL is what the runner and CI both set; the default below is the local dev
+#: server, so the file runs against a laptop with nothing set at all. Nothing rewrites
+#: this line to point somewhere else.
 #:
-#: Stamped for upload by stamp_target_url.py. The default below is the local dev
-#: server, so the file stays runnable against a laptop without being edited.
-BASE_URL = "http://127.0.0.1:9100"
+#: One exception, and it is the runner's, not ours: TestSprite's V3 backend sandbox
+#: validates an uploaded file before it makes a single request, and rejects one whose
+#: base URL is not a literal. `python stamp_target_url.py <mcp> <middleware>` resolves
+#: this expression to a literal into build/ for that upload only. The sources stay as
+#: they are, and every other way of running these tests reads the environment.
+BASE_URL = os.environ.get("TARGET_URL", "http://127.0.0.1:9100").rstrip("/")
 
 TIMEOUT = 30
 MCP = f"{BASE_URL}/mcp/"

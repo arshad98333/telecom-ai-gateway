@@ -20,8 +20,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import pathlib
-import re
 import sys
 import traceback
 from datetime import UTC, datetime, timedelta
@@ -150,17 +150,16 @@ async def serve(app: Any, port: int) -> uvicorn.Server:
 def run_file(path: pathlib.Path, target_url: str, token: str) -> tuple[bool, str]:
     """Execute one test file the way TestSprite's V3 runner does.
 
-    Two details make this a faithful reproduction rather than a friendly one.
-
     The runner injects the credential block and __VARS__ - and *nothing else*. It does
-    not provide a base URL. So this does not either: it rewrites the file's own
-    BASE_URL literal, exactly as stamp_target_url.py does for upload. Injecting a URL
-    here would hide the one failure mode that cost three real runs to discover.
+    not provide a base URL, which is why the uploaded copies carry a resolved literal
+    (stamp_target_url.py) rather than reading anything at run time.
+
+    The sources themselves take the target from TARGET_URL, so here the target is set
+    in the environment and the file is executed unmodified. Nothing rewrites a source.
+    To dry-run the bytes that actually get uploaded, stamp into build/ and point this
+    at that directory instead.
     """
-    source = re.sub(
-        r'^BASE_URL = ".*"$', f'BASE_URL = "{target_url}"', path.read_text(encoding="utf-8"),
-        count=1, flags=re.MULTILINE,
-    )
+    source = path.read_text(encoding="utf-8")
     namespace: dict[str, Any] = {
         "__name__": "__testsprite__",
         # The exact names TestSprite prepends, with the same shapes.
@@ -169,12 +168,19 @@ def run_file(path: pathlib.Path, target_url: str, token: str) -> tuple[bool, str
         "__AUTH_HEADERS__": {"Authorization": f"Bearer {token}"},
         "__VARS__": {},
     }
+    previous = os.environ.get("TARGET_URL")
+    os.environ["TARGET_URL"] = target_url
     try:
         exec(compile(source, str(path), "exec"), namespace)  # noqa: S102
     except AssertionError as failure:
         return False, f"assertion failed: {failure}"
     except Exception:  # noqa: BLE001 - a test file may raise anything
         return False, traceback.format_exc(limit=3).strip().splitlines()[-1]
+    finally:
+        if previous is None:
+            os.environ.pop("TARGET_URL", None)
+        else:
+            os.environ["TARGET_URL"] = previous
     return True, "passed"
 
 
