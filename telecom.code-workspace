@@ -89,12 +89,58 @@
         "group": { "kind": "test", "isDefault": true }
       },
       {
+        // Nine checks against both running services: reads, a write, deduplication,
+        // the refusals, and the catalogue narrowing with the caller's scopes.
+        "label": "Smoke test the whole chain",
+        "type": "shell",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\smoke.ps1",
+        "linux": { "command": "pwsh -NoProfile -File ./scripts/smoke.ps1" },
+        "osx": { "command": "pwsh -NoProfile -File ./scripts/smoke.ps1" },
+        "options": { "cwd": "${workspaceFolder:tools}" },
+        "problemMatcher": [],
+        "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+      },
+      {
+        // One token, verified at both hops. Written into both .env files so the
+        // requests.http in either folder picks it up without anything being pasted.
+        "label": "Mint a token into both .env files",
+        "type": "shell",
+        "command": "uv run --env-file .env python scripts/mint_dev_token.py --role ${input:tokenRole} --write-env && cd \"${workspaceFolder:middleware}\" && uv run --env-file .env python scripts/dev_token.py --role ${input:tokenRole} --write-env",
+        "options": { "cwd": "${workspaceFolder:tools}" },
+        "problemMatcher": []
+      },
+      {
+        // Which service is calling, as distinct from which person.
+        "label": "Tests: the service-credential check",
+        "type": "shell",
+        "command": "uv run pytest tests/unit/test_service_credential.py tests/integration/test_service_identity.py -v",
+        "options": { "cwd": "${workspaceFolder:middleware}" },
+        "problemMatcher": []
+      },
+      {
+        // Both validators, in one go. Exits 78 naming every problem at once.
+        "label": "Check both configurations",
+        "type": "shell",
+        "command": "uv run --env-file .env telecom-mcp check-config && cd \"${workspaceFolder:middleware}\" && uv run --env-file .env telecom-middleware check-config",
+        "options": { "cwd": "${workspaceFolder:tools}" },
+        "problemMatcher": []
+      },
+      {
         "label": "Run the end-to-end suite",
         "detail": "Both services in one process, talking over real HTTP",
         "type": "shell",
         "command": "uv sync --frozen && uv run pytest -q",
         "options": { "cwd": "${workspaceFolder:end-to-end}" },
         "problemMatcher": []
+      }
+    ],
+    "inputs": [
+      {
+        "id": "tokenRole",
+        "type": "pickString",
+        "description": "Which identity should the token carry?",
+        "options": ["customer", "support_agent", "supervisor_approver", "admin_security"],
+        "default": "customer"
       }
     ]
   }
