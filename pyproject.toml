@@ -9,7 +9,7 @@ description = "Security-enforcing MCP tool server for telecom customer support a
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11,<3.14"
-authors = [{ name = "AI Engineering" }]
+authors = [{ name = "Arshad", email = "arshad@arshadify.online" }]
 keywords = ["mcp", "telecom", "agent", "tools"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -36,7 +36,7 @@ telecom-mcp = "telecom_mcp.api.cli:main"
 
 [project.urls]
 Homepage = "https://example.invalid/telecom-mcp-tools"
-Changelog = "https://example.invalid/telecom-mcp-tools/blob/main/CHANGELOG.md"
+Changelog = "https://example.invalid/telecom-mcp-tools/blob/Arshad/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

@@ -1,7 +1,7 @@
 # Build Plan — Telecom MCP Tools Package (Project 1)
 
 Status: approved scope, v1.0.0
-Owner: AI Engineering
+Owner: Arshad
 Source of truth: `project1.json` (what to build), `24x7.ai.json` (the operating SOP it must enforce),
 `production-engineering-guidebook.md` (how it must be built), `release_doc.json` (how it ships).
 
