@@ -5,17 +5,23 @@ build-backend = "hatchling.build"
 [project]
 name = "telecom-mcp-tools"
 version = "1.0.0"
-description = "Security-enforcing MCP tool server for telecom customer support agents."
+description = "Security-enforcing MCP tool server for telecom customer support agents: OIDC/JWKS identity, role-based scopes, per-call authorization, idempotent writes and a tamper-evident audit trail."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11,<3.14"
 authors = [{ name = "Arshad", email = "arshad@arshadify.online" }]
-keywords = ["mcp", "telecom", "agent", "tools"]
+keywords = ["mcp", "model-context-protocol", "telecom", "agent", "tools", "auth0", "oidc", "rbac"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
+  "Intended Audience :: Telecommunications Industry",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Topic :: System :: Systems Administration :: Authentication/Directory",
   "Typing :: Typed",
 ]
 dependencies = [
@@ -35,8 +41,11 @@ http = ["uvicorn>=0.30,<1", "starlette>=0.37,<1"]
 telecom-mcp = "telecom_mcp.api.cli:main"
 
 [project.urls]
-Homepage = "https://example.invalid/telecom-mcp-tools"
-Changelog = "https://example.invalid/telecom-mcp-tools/blob/Arshad/CHANGELOG.md"
+Homepage = "https://github.com/arshad98333/telecom-mcp-tools"
+Documentation = "https://github.com/arshad98333/telecom-mcp-tools#readme"
+Repository = "https://github.com/arshad98333/telecom-mcp-tools"
+Changelog = "https://github.com/arshad98333/telecom-mcp-tools/blob/Arshad/CHANGELOG.md"
+Issues = "https://github.com/arshad98333/telecom-mcp-tools/issues"
 
 [dependency-groups]
 dev = [
