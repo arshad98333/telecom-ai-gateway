@@ -21,6 +21,8 @@ class ErrorCode(StrEnum):
     TOKEN_INVALID = "token_invalid"  # noqa: S105 - an error code, not a credential
     TOKEN_EXPIRED = "token_expired"  # noqa: S105 - an error code, not a credential
     FORBIDDEN = "forbidden"
+    SERVICE_NOT_RECOGNISED = "service_not_recognised"
+    SERVICE_CREDENTIAL_MISSING = "service_credential_missing"
     NOT_FOUND = "not_found"
     INVALID_INPUT = "invalid_input"
     CONFLICT = "conflict"
@@ -96,6 +98,37 @@ class TokenInvalidError(AuthenticationError):
 class TokenExpiredError(AuthenticationError):
     code = ErrorCode.TOKEN_EXPIRED
     title = "The access token has expired."
+
+
+class ServiceNotRecognisedError(AuthenticationError):
+    """The calling service could not be identified, whatever user token it carried.
+
+    Distinct from an unauthenticated user so an operator can tell "nobody signed in"
+    from "something we do not know is calling on a signed-in user's behalf" - which are
+    different incidents.
+    """
+
+    code = ErrorCode.SERVICE_NOT_RECOGNISED
+
+
+class ServiceCredentialMissingError(AuthenticationError):
+    """No service credential was presented at all.
+
+    Separated from ``ServiceNotRecognisedError`` on purpose, and the distinction leaks
+    nothing: a caller that sent no header learns only that a header it did not send is
+    required, which is a fact about our configuration and not about any credential. A
+    caller that sent the *wrong* credential still gets the opaque refusal above, so the
+    endpoint remains useless as an oracle for guessing the secret - or for probing
+    whether a user token is valid, which is checked only after this gate passes.
+
+    It exists because the two are diagnosed completely differently. "You forgot a
+    header" is a five-minute fix; "we do not recognise you" is an investigation. A
+    single code for both sent an entire external test run chasing token audiences for
+    a missing header.
+    """
+
+    code = ErrorCode.SERVICE_CREDENTIAL_MISSING
+    title = "A service credential is required."
 
 
 class ForbiddenError(MiddlewareError):

@@ -20,6 +20,20 @@
       "group": "build"
     },
     {
+      "label": "Check the MongoDB connection",
+      "detail": "Reachable? A replica set? Writable? Run this first when anything fails",
+      "type": "shell",
+      "command": "uv run --env-file .env python scripts/check_mongo.py",
+      "problemMatcher": []
+    },
+    {
+      "label": "Check the MongoDB connection (local Docker)",
+      "detail": "Same check against the mongo:7.0 replica set from docker-compose.yml",
+      "type": "shell",
+      "command": "uv run python scripts/check_mongo.py --local",
+      "problemMatcher": []
+    },
+    {
       "label": "Check the store",
       "detail": "Is the database reachable, a replica set, and indexed?",
       "type": "shell",

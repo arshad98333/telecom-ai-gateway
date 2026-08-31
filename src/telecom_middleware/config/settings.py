@@ -18,6 +18,7 @@ from telecom_middleware.domain.errors import ConfigurationError
 Environment = Literal["local", "staging", "production"]
 StoreKind = Literal["memory", "mongodb"]
 VerifierKind = Literal["local", "jwks"]
+ServiceAuthKind = Literal["unchecked", "shared_secret", "jwks"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
@@ -50,6 +51,14 @@ class Settings(BaseSettings):
     local_verifier_secret: SecretStr | None = None
     jwks_cache_ttl_s: float = Field(default=600.0, ge=30, le=86_400)
     claim_namespace: str = "https://telecom.example/"
+
+    # --- Service identity ---
+    # Which *service* may call, as distinct from which person. See
+    # security/service_credential.py for what each mode checks.
+    service_auth: ServiceAuthKind = "unchecked"
+    service_shared_secret: SecretStr | None = None
+    #: Comma-separated Auth0 client ids permitted to call, when service_auth=jwks.
+    service_allowed_client_ids: str = ""
 
     # --- Passcode policy ---
     passcode_max_attempts: int = Field(default=5, ge=1, le=20)
@@ -87,6 +96,24 @@ class Settings(BaseSettings):
                 "TELECOM_MW_LOCAL_VERIFIER_SECRET (required when IDENTITY_VERIFIER=local)"
             )
 
+        if self.service_auth == "shared_secret" and self.service_shared_secret is None:
+            missing.append(
+                "TELECOM_MW_SERVICE_SHARED_SECRET (required when SERVICE_AUTH=shared_secret)"
+            )
+        if self.service_auth == "jwks":
+            if not self.service_allowed_client_ids.strip():
+                missing.append(
+                    "TELECOM_MW_SERVICE_ALLOWED_CLIENT_IDS (required when SERVICE_AUTH=jwks); "
+                    "a valid token is not enough, the client must be named"
+                )
+            for name, value in (
+                ("TELECOM_MW_JWKS_URL", self.jwks_url),
+                ("TELECOM_MW_JWT_ISSUER", self.jwt_issuer),
+                ("TELECOM_MW_JWT_AUDIENCE", self.jwt_audience),
+            ):
+                if not value:
+                    missing.append(f"{name} (required when SERVICE_AUTH=jwks)")
+
         if missing:
             raise ValueError("missing required configuration:\n  - " + "\n  - ".join(missing))
 
@@ -102,6 +129,12 @@ class Settings(BaseSettings):
                     "TELECOM_MW_IDENTITY_VERIFIER must be 'jwks' in production; the local "
                     "verifier trusts a shared secret anyone with the environment can forge"
                 )
+            if self.service_auth == "unchecked":
+                unsafe.append(
+                    "TELECOM_MW_SERVICE_AUTH must not be 'unchecked' in production; "
+                    "anything that can reach the port would be served, and a stolen "
+                    "customer token would work from anywhere"
+                )
             if unsafe:
                 raise ValueError("unsafe production configuration:\n  - " + "\n  - ".join(unsafe))
 
@@ -109,6 +142,13 @@ class Settings(BaseSettings):
             raise ValueError("TELECOM_MW_CLAIM_NAMESPACE must end with '/'")
 
         return self
+
+    @property
+    def allowed_service_client_ids(self) -> frozenset[str]:
+        """The allowlist, parsed. Empty entries are dropped rather than permitted."""
+        return frozenset(
+            entry.strip() for entry in self.service_allowed_client_ids.split(",") if entry.strip()
+        )
 
     def describe(self) -> dict[str, object]:
         """Loggable view. Secrets are replaced, never masked in place."""

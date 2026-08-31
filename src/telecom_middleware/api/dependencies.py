@@ -22,13 +22,24 @@ from fastapi import Depends, Header, Request
 from telecom_middleware.api.context import AppContext
 from telecom_middleware.domain.errors import (
     AuthenticationError,
+    ServiceCredentialMissingError,
+    ServiceNotRecognisedError,
     TokenExpiredError,
     TokenInvalidError,
 )
+from telecom_middleware.observability.logging import get_logger
 from telecom_middleware.security.access import require_scope
 from telecom_middleware.security.permissions import Scope
 from telecom_middleware.security.principal import Principal
+from telecom_middleware.security.service_credential import (
+    SERVICE_CREDENTIAL_HEADER,
+    MissingServiceCredentialError,
+    ServiceCaller,
+    ServiceCredentialError,
+)
 from telecom_middleware.security.verifier import TokenVerificationError
+
+logger = get_logger(__name__)
 
 BEARER_PREFIX = "Bearer "
 CORRELATION_HEADER = "X-Correlation-Id"
@@ -88,6 +99,57 @@ async def current_principal(
 
 
 PrincipalDep = Annotated[Principal, Depends(current_principal)]
+
+
+async def verified_service(
+    request: Request,
+    context: AppContextDep,
+    credential: Annotated[str | None, Header(alias=SERVICE_CREDENTIAL_HEADER)] = None,
+) -> ServiceCaller:
+    """Prove which service is calling, before asking who the call is for.
+
+    Applied to every API router rather than to each endpoint, because "which service"
+    is a property of the connection, not of the operation - and a per-route version
+    would be one more thing a new endpoint could forget.
+
+    A person's token and a service's credential are checked independently and neither
+    substitutes for the other: this refuses an unknown caller carrying a perfectly
+    valid user token, and ``require_human`` refuses a service credential presented as
+    a person.
+    """
+    try:
+        caller = await context.service_credentials.verify(credential)
+    except MissingServiceCredentialError as exc:
+        # An absent header is a configuration mistake, not an attack, and saying so
+        # costs nothing: the caller learns a header exists, which the OpenAPI document
+        # already says. A *wrong* credential still falls through to the opaque refusal
+        # below, so this remains useless for guessing the secret.
+        logger.warning(
+            "service_credential_missing",
+            path=request.url.path,
+            header=SERVICE_CREDENTIAL_HEADER,
+        )
+        raise ServiceCredentialMissingError(
+            str(exc),
+            detail={
+                "header": SERVICE_CREDENTIAL_HEADER,
+                "hint": (
+                    "This API expects two credentials: the caller's own token in "
+                    "Authorization, and the calling service's credential in "
+                    f"{SERVICE_CREDENTIAL_HEADER}. Neither substitutes for the other."
+                ),
+            },
+        ) from exc
+    except ServiceCredentialError as exc:
+        # Logged rather than audited: there is no verified identity to attribute it to
+        # at this point, and inventing one would put a fiction in the audit trail.
+        logger.warning("service_credential_refused", path=request.url.path, reason=str(exc))
+        raise ServiceNotRecognisedError(str(exc)) from exc
+    request.state.service_caller = caller
+    return caller
+
+
+ServiceCallerDep = Annotated[ServiceCaller, Depends(verified_service)]
 
 
 def requires(*scopes: Scope) -> Callable[[Principal], Awaitable[Principal]]:

@@ -139,68 +139,39 @@ class LocalVerifier:
 JwksFetcher = Callable[[], Awaitable[dict[str, Any]]]
 
 
-class JwksVerifier:
-    """RS256 verification against Auth0's published keys."""
+class JwksKeyStore:
+    """The tenant's published signing keys, cached.
+
+    Pulled out of the verifier because the service-credential check needs the same
+    keys. One tenant publishes one key set, so two independent caches would mean two
+    refetches on every rotation and two chances to be caught stale.
+
+    Refreshed once when an unknown key identifier appears - that is what a rotation
+    looks like - rather than per call, or a malformed token becomes a denial-of-service
+    against Auth0. Served stale through a provider outage, but only for a bounded
+    window; past it, this fails closed.
+    """
 
     def __init__(
         self,
         *,
         fetch_jwks: JwksFetcher,
-        issuer: str,
-        audience: str,
-        namespace: str,
         now: Callable[[], float],
         cache_ttl_s: float = 600.0,
         stale_if_error_s: float = 3600.0,
     ) -> None:
         self._fetch_jwks = fetch_jwks
-        self._issuer = issuer
-        self._audience = audience
-        self._reader = ClaimReader(namespace)
         self._now = now
         self._cache_ttl_s = cache_ttl_s
         self._stale_if_error_s = stale_if_error_s
         self._keys: PyJWKSet | None = None
         self._fetched_at = 0.0
 
-    async def verify(self, token: str) -> Principal:
-        try:
-            header = jwt.get_unverified_header(token)
-        except jwt.PyJWTError as exc:
-            raise TokenVerificationError("token header is malformed") from exc
-
-        kid = header.get("kid")
-        if not kid:
-            raise TokenVerificationError("token has no key identifier")
-
-        key = await self._signing_key(str(kid))
-        try:
-            claims = jwt.decode(
-                token,
-                key.key,
-                algorithms=["RS256"],
-                audience=self._audience,
-                issuer=self._issuer,
-                options={"require": ["exp", "aud", "iss", "sub"]},
-            )
-        except jwt.ExpiredSignatureError as exc:
-            raise TokenVerificationError("token expired") from exc
-        except jwt.PyJWTError as exc:
-            raise TokenVerificationError("token could not be verified") from exc
-
-        principal = principal_from_claims(claims, self._reader)
-        lifetime = (principal.expires_at - datetime.now(UTC)).total_seconds()
-        if lifetime > MAX_TOKEN_LIFETIME_S:
-            raise TokenVerificationError("token lifetime exceeds the permitted maximum")
-        return principal
-
-    async def _signing_key(self, kid: str) -> Any:
+    async def signing_key(self, kid: str) -> Any:
         await self._ensure_keys()
         found = self._find(kid)
         if found is not None:
             return found
-        # An unknown key identifier is the signal that keys rotated. Refresh once,
-        # not per call, or a bad token becomes a denial-of-service against Auth0.
         self._fetched_at = 0.0
         await self._ensure_keys()
         found = self._find(kid)
@@ -228,3 +199,64 @@ class JwksVerifier:
             if self._keys is not None and age < self._stale_if_error_s:
                 return  # serve through a provider outage, but only for a bounded window
             raise TokenVerificationError("signing keys are unavailable") from exc
+
+
+class JwksVerifier:
+    """RS256 verification against Auth0's published keys."""
+
+    def __init__(
+        self,
+        *,
+        fetch_jwks: JwksFetcher | None = None,
+        issuer: str,
+        audience: str,
+        namespace: str,
+        now: Callable[[], float],
+        cache_ttl_s: float = 600.0,
+        stale_if_error_s: float = 3600.0,
+        keys: JwksKeyStore | None = None,
+    ) -> None:
+        if keys is None:
+            if fetch_jwks is None:
+                raise ValueError("either a key store or a fetcher is required")
+            keys = JwksKeyStore(
+                fetch_jwks=fetch_jwks,
+                now=now,
+                cache_ttl_s=cache_ttl_s,
+                stale_if_error_s=stale_if_error_s,
+            )
+        self._keys = keys
+        self._issuer = issuer
+        self._audience = audience
+        self._reader = ClaimReader(namespace)
+
+    async def verify(self, token: str) -> Principal:
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError as exc:
+            raise TokenVerificationError("token header is malformed") from exc
+
+        kid = header.get("kid")
+        if not kid:
+            raise TokenVerificationError("token has no key identifier")
+
+        key = await self._keys.signing_key(str(kid))
+        try:
+            claims = jwt.decode(
+                token,
+                key.key,
+                algorithms=["RS256"],
+                audience=self._audience,
+                issuer=self._issuer,
+                options={"require": ["exp", "aud", "iss", "sub"]},
+            )
+        except jwt.ExpiredSignatureError as exc:
+            raise TokenVerificationError("token expired") from exc
+        except jwt.PyJWTError as exc:
+            raise TokenVerificationError("token could not be verified") from exc
+
+        principal = principal_from_claims(claims, self._reader)
+        lifetime = (principal.expires_at - datetime.now(UTC)).total_seconds()
+        if lifetime > MAX_TOKEN_LIFETIME_S:
+            raise TokenVerificationError("token lifetime exceeds the permitted maximum")
+        return principal

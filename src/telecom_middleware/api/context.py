@@ -15,6 +15,7 @@ from typing import Any
 
 from telecom_middleware.config.settings import Settings
 from telecom_middleware.observability.redaction import Redactor
+from telecom_middleware.security.service_credential import ServiceCredentialVerifier
 from telecom_middleware.security.verifier import TokenVerifier
 from telecom_middleware.services.recording import Recorder
 
@@ -42,6 +43,8 @@ class AppContext:
     settings: Settings
     store: Any
     verifier: TokenVerifier
+    #: Proves which service is calling, as distinct from which person.
+    service_credentials: ServiceCredentialVerifier
     redactor: Redactor
     recorder: Recorder
     clock: Any

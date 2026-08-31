@@ -13,6 +13,10 @@
 @baseUrl = http://127.0.0.1:9000
 @api = {{baseUrl}}/api/v1
 @token = {{$dotenv DEV_TOKEN}}
+# Proves which *service* is calling, as distinct from which person. Read straight from
+# .env, so it matches TELECOM_MCP_BACKEND_API_KEY without anything being pasted here.
+# Only checked when TELECOM_MW_SERVICE_AUTH is not 'unchecked'; harmless when it is.
+@service = {{$dotenv TELECOM_MW_SERVICE_SHARED_SECRET}}
 @cx = CX-1234
 @otherCx = CX-5555
 
@@ -29,6 +33,7 @@ GET {{baseUrl}}/readyz
 ### The passcode check the voice agent does first. Demo passcode: 4821
 POST {{api}}/customers/{{cx}}/authenticate
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -39,6 +44,7 @@ Content-Type: application/json
 ### The same call with the wrong passcode — note it never says how many attempts remain
 POST {{api}}/customers/{{cx}}/authenticate
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -49,27 +55,33 @@ Content-Type: application/json
 ### Account details
 GET {{api}}/customers/{{cx}}
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Active services
 GET {{api}}/customers/{{cx}}/services?limit=5
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Orders, newest first
 GET {{api}}/customers/{{cx}}/orders?limit=5
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Invoices. total_minor is pennies: 6300 is £63.00
 GET {{api}}/customers/{{cx}}/invoices?limit=5
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Network status for the customer's own area — the area comes from their service
 ### record, never from anything the caller sends
 GET {{api}}/customers/{{cx}}/network
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Someone else's account. 403, with wording that gives nothing away
 GET {{api}}/customers/{{otherCx}}
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### No token at all. 401
 GET {{api}}/customers/{{cx}}
@@ -81,6 +93,7 @@ GET {{api}}/customers/{{cx}}
 ### Raise a ticket. 201 the first time
 POST {{api}}/customers/{{cx}}/tickets
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Idempotency-Key: idem-vscode-ticket-0001
 Content-Type: application/json
 
@@ -96,6 +109,7 @@ Content-Type: application/json
 ### One ticket exists, not two.
 POST {{api}}/customers/{{cx}}/tickets
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Idempotency-Key: idem-vscode-ticket-0001
 Content-Type: application/json
 
@@ -111,6 +125,7 @@ Content-Type: application/json
 ### wrong result
 POST {{api}}/customers/{{cx}}/tickets
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Idempotency-Key: idem-vscode-ticket-0001
 Content-Type: application/json
 
@@ -125,6 +140,7 @@ Content-Type: application/json
 ### A write with no key at all. 422, naming the header it wanted
 POST {{api}}/customers/{{cx}}/tickets
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -138,10 +154,12 @@ Content-Type: application/json
 ### The customer's tickets
 GET {{api}}/customers/{{cx}}/tickets?limit=5
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Book a callback. The time must carry a timezone offset
 POST {{api}}/customers/{{cx}}/callbacks
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Idempotency-Key: idem-vscode-callback-0001
 Content-Type: application/json
 
@@ -160,6 +178,7 @@ Content-Type: application/json
 ### The evidence in the response is read from the invoice, not from the justification.
 POST {{api}}/customers/{{cx}}/refund-approvals
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Idempotency-Key: idem-vscode-refund-0001
 Content-Type: application/json
 
@@ -175,6 +194,7 @@ Content-Type: application/json
 ### A refund larger than the invoice. 409
 POST {{api}}/customers/{{cx}}/refund-approvals
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Idempotency-Key: idem-vscode-refund-0002
 Content-Type: application/json
 
@@ -191,10 +211,12 @@ Content-Type: application/json
 ### task again and choose supervisor_approver, then send this.
 GET {{api}}/approvals
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### Decide the one that came with the seed data. Needs the supervisor token.
 POST {{api}}/approvals/APR-seed-0001/decision
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -205,6 +227,7 @@ Content-Type: application/json
 ### Send that again. 409 — a decided request cannot be decided twice
 POST {{api}}/approvals/APR-seed-0001/decision
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -219,6 +242,7 @@ Content-Type: application/json
 ### Assign an account to an agent. Supervisor token.
 POST {{api}}/assignments
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -229,16 +253,19 @@ Content-Type: application/json
 ### What that agent may act on
 GET {{api}}/assignments/auth0|agent-7
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### The audit trail, with the chain verified. Needs an admin_security token.
 ### Note cx_ref: a stable reference, never the customer's identifier.
 GET {{api}}/audit?limit=20
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 
 ### The live feed. Leave it running in one tab and send a write from another.
 ### Needs a token with case:read; a supervisor also sees approval events.
 GET {{api}}/stream
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Accept: text/event-stream
 
 ### ---------------------------------------------------------------------------
@@ -248,6 +275,7 @@ Accept: text/event-stream
 ### Record a turn
 PUT {{api}}/cases
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -265,6 +293,7 @@ Content-Type: application/json
 ### The line drops
 PUT {{api}}/cases
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
 Content-Type: application/json
 
 {
@@ -277,3 +306,32 @@ Content-Type: application/json
 ### rather than starting again from nothing.
 POST {{api}}/customers/{{cx}}/cases/resume
 Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer {{service}}
+
+
+### ---------------------------------------------------------------------------
+### Which service is calling — only meaningful when TELECOM_MW_SERVICE_AUTH is set
+### ---------------------------------------------------------------------------
+
+### A caller the API does not recognise. 401 service_not_recognised, even though the
+### user token is perfectly valid — which is what makes a stolen token worth nothing
+### replayed from somewhere else.
+GET {{api}}/customers/{{cx}}
+Authorization: Bearer {{token}}
+X-Service-Authorization: Bearer not-the-configured-credential
+
+### The same request with the header left off entirely. 401, but
+### service_credential_missing, and the body names the header. Sending nothing is a
+### configuration mistake; sending the wrong thing is the case above, and only that one
+### stays opaque.
+GET {{api}}/customers/{{cx}}
+Authorization: Bearer {{token}}
+
+### No service credential at all. Same refusal.
+GET {{api}}/customers/{{cx}}
+Authorization: Bearer {{token}}
+
+### A recognised service with no user token. 401 unauthenticated — the service
+### credential authenticates the robot, never the person.
+GET {{api}}/customers/{{cx}}
+X-Service-Authorization: Bearer {{service}}

@@ -29,6 +29,9 @@ PRODUCTION = {
     "TELECOM_MW_JWKS_URL": "https://tenant.example.invalid/.well-known/jwks.json",
     "TELECOM_MW_JWT_ISSUER": "https://tenant.example.invalid/",
     "TELECOM_MW_JWT_AUDIENCE": "https://api.telecom.example/v1",
+    # Production must also prove which service is calling, not only which person.
+    "TELECOM_MW_SERVICE_AUTH": "jwks",
+    "TELECOM_MW_SERVICE_ALLOWED_CLIENT_IDS": "mcp-tool-server-client-id",
 }
 
 

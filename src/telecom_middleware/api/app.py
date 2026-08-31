@@ -20,13 +20,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from telecom_middleware._version import API_VERSION, __version__
 from telecom_middleware.api.context import AppContext
-from telecom_middleware.api.dependencies import CORRELATION_HEADER, get_correlation_id
+from telecom_middleware.api.dependencies import (
+    CORRELATION_HEADER,
+    get_correlation_id,
+    verified_service,
+)
 from telecom_middleware.api.routes import (
     admin,
     approvals,
@@ -89,6 +93,9 @@ def build_app(context: AppContext, *, start_realtime: bool = True) -> FastAPI:
     )
     app.state.context = context
 
+    # Liveness and readiness carry no credential of any kind: an orchestrator consults
+    # them before any identity exists, and a probe that can fail on configuration is a
+    # probe that reports a healthy service as down.
     app.include_router(health.router)
     for router in (
         customers.router,
@@ -98,11 +105,48 @@ def build_app(context: AppContext, *, start_realtime: bool = True) -> FastAPI:
         admin.router,
         stream.router,
     ):
-        app.include_router(router, prefix=API_PREFIX)
+        app.include_router(router, prefix=API_PREFIX, dependencies=[Depends(verified_service)])
 
     _install_error_handlers(app)
     _install_middleware(app)
+    _warn_about_exposed_defaults(context)
     return app
+
+
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _warn_about_exposed_defaults(context: AppContext) -> None:
+    """Say so, loudly, when a relaxed development setting is reachable off-box.
+
+    The settings validator refuses these outright in production, which leaves a gap:
+    a laptop put behind a tunnel so an external test runner can reach it is still
+    ``env=local``, and every relaxed default travels with it. That is a legitimate
+    thing to do deliberately and a bad thing to do by accident, so this warns rather
+    than refuses - but it warns every start, naming the setting and the reason.
+    """
+    settings = context.settings
+    if settings.http_host in LOOPBACK_HOSTS:
+        return
+    if settings.service_auth == "unchecked":
+        logger.warning(
+            "relaxed_service_auth_on_a_reachable_interface",
+            setting="TELECOM_MW_SERVICE_AUTH",
+            value="unchecked",
+            host=settings.http_host,
+            reason=(
+                "every caller that can reach this port is served, and a stolen "
+                "customer token would work from anywhere"
+            ),
+        )
+    if settings.identity_verifier == "local":
+        logger.warning(
+            "local_verifier_on_a_reachable_interface",
+            setting="TELECOM_MW_IDENTITY_VERIFIER",
+            value="local",
+            host=settings.http_host,
+            reason="tokens are signed with a shared secret anyone holding it can forge",
+        )
 
 
 def _install_error_handlers(app: FastAPI) -> None:
