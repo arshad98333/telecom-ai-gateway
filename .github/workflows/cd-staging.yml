@@ -1,0 +1,203 @@
+name: cd-staging
+
+# The only place an image is ever built.
+#
+#   Arshad ──PR──► staging ──BUILD──► image@sha256:… ──deploy──► STAGING
+#
+# Production does not build. It looks this digest up by commit sha and deploys the same
+# bytes, so "we deployed what we tested" is a property of the pipeline rather than a
+# convention someone remembers. The image is tagged with the commit sha as well, but
+# the tag is for humans: a tag can be moved and a digest cannot.
+#
+# Nothing here holds a credential. Azure is entered through OIDC federation, the
+# registry through the app's managed identity, and application secrets through Key
+# Vault. See infra/azure/README.md for the one-time bootstrap.
+
+on:
+  push:
+    branches: [staging]
+    paths-ignore: ["**/*.md", "docs/**"]
+  pull_request:
+    branches: [staging]
+    paths: ["infra/azure/**", ".github/workflows/cd-*.yml"]
+  workflow_dispatch:
+
+concurrency:
+  # One delivery at a time. Two overlapping runs would race to set the active revision,
+  # and the winner would be whichever finished last rather than whichever is newest.
+  group: cd-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: telecom-mcp-tools
+
+jobs:
+  # --- On a pull request, prove the template still compiles. No Azure, no deploy. ---
+  validate-infra:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The Bicep must compile and lint clean
+        run: |
+          set -euo pipefail
+          az bicep install
+          az bicep build --file infra/azure/main.bicep --outfile /tmp/main.json
+          echo "template compiled"
+
+      - name: The generated alert rules must compile too
+        run: |
+          set -euo pipefail
+          az bicep build --file infra/observability/alerts.bicep --outfile /tmp/alerts.json
+          echo "alert rules compiled"
+
+  # --- Build the artifact once. Everything downstream refers to this digest. -------
+  build:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image: ${{ steps.pin.outputs.image }}
+      digest: ${{ steps.build.outputs.digest }}
+      revision: ${{ steps.meta.outputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: |
+          # Container Apps revision suffixes are lowercase alphanumeric or dashes.
+          echo "revision=c$(echo '${{ github.sha }}' | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign in to the registry
+        run: az acr login --name "${{ vars.REGISTRY_NAME }}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          push: true
+          provenance: mode=max
+          sbom: true
+          # sha-<commit> is how the production workflow finds this image later. The
+          # digest is what it actually deploys.
+          tags: ${{ vars.REGISTRY_SERVER }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - id: pin
+        name: Pin the image by digest
+        run: |
+          set -euo pipefail
+          image="${{ vars.REGISTRY_SERVER }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Artifact::$image"
+          {
+            echo "### Built"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| commit | \`${{ github.sha }}\` |"
+            echo "| digest | \`${{ steps.build.outputs.digest }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The image must start and validate its own configuration
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=build-check-secret-long-enough-32b \
+            "${{ vars.REGISTRY_SERVER }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}" \
+            check-config > /dev/null
+          echo "image runs and its configuration validates"
+
+  # --- Staging. Deployed automatically; nobody waits for a person at this stage. ---
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.url }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: What this deployment would change
+        run: |
+          az deployment group what-if \
+            --resource-group "${{ vars.RESOURCE_GROUP }}" \
+            --template-file infra/azure/main.bicep \
+            --parameters environmentName=staging \
+              image='${{ needs.build.outputs.image }}' \
+              revisionSuffix='${{ needs.build.outputs.revision }}' \
+              registryServer='${{ vars.REGISTRY_SERVER }}' \
+              registryResourceId='${{ vars.REGISTRY_RESOURCE_ID }}' \
+              keyVaultName='${{ vars.KEY_VAULT_NAME }}' \
+              backendBaseUrl='${{ vars.BACKEND_BASE_URL }}' \
+              jwksUrl='${{ vars.JWKS_URL }}' \
+              jwtIssuer='${{ vars.JWT_ISSUER }}' \
+              jwtAudience='${{ vars.JWT_AUDIENCE }}' \
+              claimNamespace='${{ vars.CLAIM_NAMESPACE }}' \
+              serviceTokenUrl='${{ vars.SERVICE_TOKEN_URL }}' \
+              serviceClientId='${{ vars.SERVICE_CLIENT_ID }}'
+
+      - id: deploy
+        uses: azure/arm-deploy@v2
+        with:
+          scope: resourcegroup
+          resourceGroupName: ${{ vars.RESOURCE_GROUP }}
+          template: infra/azure/main.bicep
+          parameters: >-
+            environmentName=staging
+            image=${{ needs.build.outputs.image }}
+            revisionSuffix=${{ needs.build.outputs.revision }}
+            registryServer=${{ vars.REGISTRY_SERVER }}
+            registryResourceId=${{ vars.REGISTRY_RESOURCE_ID }}
+            keyVaultName=${{ vars.KEY_VAULT_NAME }}
+            backendBaseUrl=${{ vars.BACKEND_BASE_URL }}
+            jwksUrl=${{ vars.JWKS_URL }}
+            jwtIssuer=${{ vars.JWT_ISSUER }}
+            jwtAudience=${{ vars.JWT_AUDIENCE }}
+            claimNamespace=${{ vars.CLAIM_NAMESPACE }}
+            serviceTokenUrl=${{ vars.SERVICE_TOKEN_URL }}
+            serviceClientId=${{ vars.SERVICE_CLIENT_ID }}
+          failOnStdErr: false
+
+      - name: The deployed revision must become ready
+        run: .github/scripts/verify_deployment.sh "${{ steps.deploy.outputs.url }}"
+
+      - name: The guardrails and the tracing must actually be on
+        run: .github/scripts/verify_posture.sh "${{ steps.deploy.outputs.url }}"
+
+      - name: Record what is now on staging
+        run: |
+          {
+            echo "### Staging"
+            echo ""
+            echo "- url: ${{ steps.deploy.outputs.url }}"
+            echo "- digest: \`${{ needs.build.outputs.digest }}\`"
+            echo ""
+            echo "Promote with: \`./scripts/promote.sh staging production\`"
+          } >> "$GITHUB_STEP_SUMMARY"
