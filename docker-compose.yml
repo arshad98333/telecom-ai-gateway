@@ -81,5 +81,16 @@ services:
       TELECOM_MCP_CLAIM_NAMESPACE: https://telecom.example/
       TELECOM_MCP_IDEMPOTENCY_STORE: memory
 
+  console:
+    build:
+      context: ./telecom-console
+    depends_on:
+      middleware:
+        condition: service_healthy
+      tools:
+        condition: service_started
+    ports:
+      - "5173:80"
+
 volumes:
   mongo-data:

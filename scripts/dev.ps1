@@ -6,7 +6,7 @@ param(
     [ValidateSet(
         "setup", "local", "run-middleware", "run-mcp", "token",
         "health", "client-tools", "client-call", "docker-mongo",
-        "docker-middleware", "docker-mcp", "demo", "down", "help"
+        "docker-middleware", "docker-mcp", "demo", "down", "console-dev", "help"
     )]
     [string]$Command = "help"
 )
@@ -115,6 +115,13 @@ Docker (three services, run separately or together):
         Invoke-Root docker compose exec -T middleware telecom-middleware seed
         Write-Host "middleware  http://localhost:9000/readyz"
         Write-Host "mcp         http://localhost:8080/readyz"
+        Write-Host "console     http://localhost:5173"
+    }
+    "console-dev" {
+        Require-Tool npm
+        Push-Location (Join-Path $Root "telecom-console")
+        if (-not (Test-Path node_modules)) { npm install }
+        npm run dev
     }
     "down" {
         Require-Tool docker

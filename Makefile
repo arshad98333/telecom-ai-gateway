@@ -26,6 +26,7 @@ UV ?= uv
         lint format typecheck cov check audit build clean docker-build docker-smoke \
         up down logs docker-mongo docker-middleware docker-mcp \
         run-middleware run-mcp token health client-tools client-call \
+        console-dev console-build console-docker \
         testable testsprite-preflight testsprite-setup testsprite-create testsprite-smoke \
         stamp validate wire-auth0 wire-auth0-activate adr
 
@@ -71,6 +72,7 @@ demo: ## Everything in Docker, seeded, on http://localhost:9000
 	@echo ""
 	@echo "  middleware   http://localhost:9000/readyz"
 	@echo "  tool server  http://localhost:8080/readyz"
+	@echo "  console      http://localhost:5173"
 	@echo "  stop it      make down"
 
 dev: ## Print the two commands that run the services on your machine
@@ -177,6 +179,15 @@ docker-middleware: ## Start MongoDB and the API image (:9000)
 
 docker-mcp: ## Start MongoDB, API, and tool server (:8080)
 	cd "$(CURDIR)" && docker compose up -d mongo middleware tools
+
+console-dev: ## React ops console on http://127.0.0.1:5173 (Vite)
+	$(MAKE) -C "$(CURDIR)/telecom-console" dev
+
+console-build: ## Build the console for production
+	$(MAKE) -C "$(CURDIR)/telecom-console" build
+
+console-docker: ## Console nginx image only (needs middleware + tools running)
+	cd "$(CURDIR)" && docker compose up -d console
 
 # --- external testing ------------------------------------------------------------------
 testable: ## Bring both services up in the external-test profile and mint a token

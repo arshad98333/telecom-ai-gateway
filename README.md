@@ -4,13 +4,14 @@ A voice agent stack for telecom customer support: read account data, raise ticke
 route sensitive actions to human approval. The tool server enforces authorization before
 any backend call; the API holds business rules and data.
 
-This repository contains three runnable components:
+This repository contains four runnable components:
 
 | Directory | Role | Default port |
 |-----------|------|--------------|
 | `telecom-mcp/` | MCP tool server (gateway) | 8080 |
 | `telecom-middleware/` | REST API and data layer | 9000 |
 | `telecom-mcp-client/` | Reference CLI client for the tool server | n/a |
+| `telecom-console/` | React ops console (monitoring, audit, MCP setup) | 5173 |
 
 Local development uses a **shared signing secret** and **built-in demo data**. Auth0 and
 external identity providers are **not required** on a laptop. Production identity is
@@ -258,7 +259,46 @@ has been applied and you intend to test against a real tenant.
 | `make docker-middleware` | Docker: MongoDB + API |
 | `make docker-mcp` | Docker: all three services |
 | `make demo` | Docker: up, seed, print URLs |
+| `make console-dev` | React ops console on :5173 |
 | `make check` | Lint, types, tests (same as CI) |
+
+---
+
+## Operations console (React)
+
+A web UI for monitoring, auditing, approvals, and MCP agent setup.
+
+| Page | Purpose |
+|------|---------|
+| Dashboard | Service health overview |
+| Monitoring | KPI and SLO report from MCP `/kpi` |
+| Auditing | Hash-chained audit trail (`admin_security` token) |
+| Approvals | Supervisor refund queue |
+| AI Agents | Copy MCP config for Cursor and Claude |
+
+**Local (Vite):**
+
+```bash
+make run-mcp          # terminal 1
+make run-middleware   # terminal 2 (for audit/approvals)
+make console-dev      # terminal 3, open http://127.0.0.1:5173
+```
+
+PowerShell:
+
+```powershell
+.\scripts\dev.ps1 run-mcp
+.\scripts\dev.ps1 run-middleware
+cd telecom-console; npm install; npm run dev
+```
+
+**Docker (fourth service):**
+
+```bash
+make demo    # includes console at http://localhost:5173
+```
+
+**Connect Cursor or Claude:** see [mcp/README.md](mcp/README.md).
 
 ---
 
@@ -294,6 +334,8 @@ Runs lint, typecheck, tests, and coverage across services. See `.github/workflow
 telecom-mcp/           MCP tool server
 telecom-middleware/    REST API
 telecom-mcp-client/    CLI client
+telecom-console/       React ops console (monitoring, audit, MCP setup)
+mcp/                   Cursor and Claude MCP config templates
 infra/auth0/           Optional production identity (Terraform)
 e2e/                   End-to-end contract tests
 GUIDE.md               Full operator guide
