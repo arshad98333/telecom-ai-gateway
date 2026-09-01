@@ -30,6 +30,11 @@ pytestmark = pytest.mark.mongo
 
 TENANT = "tenant-eu-1"
 
+#: How long to let a change-stream cursor establish before writing the event it should
+#: see. A local replica set needs a fraction of this; a hosted cluster over the internet
+#: does not, and a race here looks like a broken watcher rather than a slow one.
+CURSOR_OPEN_S = 3.0
+
 
 def _uri() -> str:
     uri = os.environ.get("TELECOM_MW_MONGODB_URI")
@@ -87,9 +92,10 @@ async def test_the_watcher_delivers_an_event_written_to_the_outbox(
             return
 
     task = asyncio.create_task(consume())
-    # The stream has to be open before the write, or there is nothing to observe. There is
-    # no callback that says "watching now", so this waits for the cursor to be established.
-    await asyncio.sleep(1.0)
+    # The stream has to be open before the write, or there is nothing to observe, and no
+    # callback says "watching now". Generous, because this also runs against a cluster on
+    # the other side of the internet where opening a cursor is not instant.
+    await asyncio.sleep(CURSOR_OPEN_S)
 
     written = _event()
     await mongo_store.outbox.add(written)
@@ -116,14 +122,14 @@ async def test_the_watcher_records_where_it_got_to(mongo_store: MongoStore) -> N
 
     first: asyncio.Task[DomainEvent] = asyncio.create_task(events.__anext__())
     # No callback says "the cursor is open", so this waits for it before writing.
-    await asyncio.sleep(1.0)
+    await asyncio.sleep(CURSOR_OPEN_S)
     await mongo_store.outbox.add(_event(sequence=2))
     assert (await asyncio.wait_for(first, timeout=20)).sequence == 2
 
     # Asking for the next one resumes the generator past the yield, which is where the
     # token for the first event is committed.
     second: asyncio.Task[DomainEvent] = asyncio.create_task(events.__anext__())
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.0)
     await mongo_store.outbox.add(_event(sequence=3))
     try:
         assert (await asyncio.wait_for(second, timeout=20)).sequence == 3
