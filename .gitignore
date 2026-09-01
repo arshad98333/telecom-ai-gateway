@@ -14,3 +14,4 @@ uv.lock.bak
 
 # Kept out of the way after the subtree merge; safe to delete once the push looks right.
 .git-backups/
+.audit-requirements.txt

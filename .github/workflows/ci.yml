@@ -115,9 +115,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # bandit.yaml disables two noise classes with written reasons and leaves every
+      # other rule live; the two remaining exceptions are marked in the code.
       - name: Static security analysis
         run: |
-          uv run --with bandit bandit -r telecom-mcp/src telecom-middleware/src -q
+          uv run --with bandit bandit -c bandit.yaml -r telecom-mcp/src telecom-middleware/src -q
 
   container:
     name: container (${{ matrix.service }})

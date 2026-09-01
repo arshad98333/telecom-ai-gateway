@@ -1,0 +1,24 @@
+# Static security analysis for both services. CI runs:
+#
+#     uv run --with bandit bandit -c bandit.yaml -r telecom-mcp/src telecom-middleware/src -q
+#
+# Two rules are disabled here rather than silenced at a dozen call sites, because in this
+# codebase they are noise classes rather than findings. Everything else stays on, and the
+# two remaining exceptions are marked in the code with `# nosec <id>` and a reason, so a
+# reader sees the decision where it applies.
+
+exclude_dirs:
+  - tests
+  - .venv
+
+skips:
+  # B101 assert_used - the three asserts in src/ are type narrowing for mypy after a
+  # branch that has already raised. They are not validating untrusted input, which is the
+  # case the rule exists for. Removing them under -O removes nothing but a type hint.
+  - B101
+
+  # B105 hardcoded_password_string - every hit is an error-code or environment-variable
+  # name whose value happens to contain "token" or "secret": token_invalid, token_expired,
+  # output_secret, TELECOM_MCP_ACCESS_TOKEN. This system holds no hardcoded credential;
+  # `make check` would fail and the release workflow scans the built archives for one.
+  - B105

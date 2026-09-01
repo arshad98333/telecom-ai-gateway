@@ -63,4 +63,5 @@ class SystemJitter:
     __slots__ = ()
 
     def uniform(self, low: float, high: float) -> float:
-        return random.uniform(low, high)  # noqa: S311 - backoff jitter, not cryptography
+        # Backoff jitter, not cryptography. Both linters flag the module by name.
+        return random.uniform(low, high)  # noqa: S311  # nosec B311

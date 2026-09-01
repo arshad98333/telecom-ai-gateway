@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from telecom_middleware.security.service_credential import (
     JwtServiceCredentials,
+    MissingServiceCredentialError,
     ServiceCredentialError,
     SharedSecretServiceCredentials,
     UncheckedServiceCredentials,
@@ -159,6 +160,87 @@ async def test_a_forged_credential_is_refused() -> None:
 
     with pytest.raises(ServiceCredentialError):
         await _verifier(document).verify(_token(other_private))
+
+
+# --- the refusals that happen before a signature is ever checked --------------------
+#
+# Each of these ends the call earlier than the cryptography does, and each returns a
+# different operator-facing reason. They are cheap to get wrong and invisible when they
+# are: a malformed credential that reported "could not be verified" would send whoever
+# is reading the log looking at the signing keys.
+
+
+def test_a_verifier_that_permits_nobody_is_refused_at_construction() -> None:
+    # An empty allow-list would accept any machine token in the tenant if the check were
+    # written the other way round, so it is a configuration error, not a default.
+    async def fetch() -> dict[str, Any]:
+        return {"keys": []}
+
+    with pytest.raises(ValueError, match="at least one service client id"):
+        JwtServiceCredentials(
+            keys=JwksKeyStore(fetch_jwks=fetch, now=lambda: 0.0),
+            issuer=ISSUER,
+            audience=AUDIENCE,
+            allowed_client_ids=frozenset(),
+        )
+
+
+@pytest.mark.parametrize("presented", [None, "", "Bearer ", "Bearer    "])
+async def test_no_credential_at_all_is_named_as_missing(presented: str | None) -> None:
+    # Distinct from every other refusal: nothing arrived in the header, which usually
+    # means the caller is not the tool server rather than that it is a bad one.
+    _, document = _key_pair()
+
+    with pytest.raises(MissingServiceCredentialError, match="no service credential"):
+        await _verifier(document).verify(presented)
+
+
+@pytest.mark.parametrize("presented", ["Bearer not-a-jwt", "Bearer a.b", "Bearer ...."])
+async def test_something_that_is_not_a_token_is_named_as_malformed(presented: str) -> None:
+    _, document = _key_pair()
+
+    with pytest.raises(ServiceCredentialError, match="malformed"):
+        await _verifier(document).verify(presented)
+
+
+async def test_a_token_with_no_key_identifier_is_refused_before_any_lookup() -> None:
+    # Without a kid there is nothing to look up, and picking a key by guessing is how a
+    # verifier ends up accepting whichever key happens to be first.
+    private, document = _key_pair()
+    headerless = jwt.encode(
+        {
+            "sub": f"{CLIENT}@clients",
+            "aud": AUDIENCE,
+            "iss": ISSUER,
+            "azp": CLIENT,
+            "gty": "client-credentials",
+            "exp": int((datetime.now(UTC) + timedelta(minutes=30)).timestamp()),
+        },
+        private,
+        algorithm="RS256",
+    )
+
+    with pytest.raises(ServiceCredentialError, match="no key identifier"):
+        await _verifier(document).verify(headerless)
+
+
+async def test_an_unreachable_key_store_is_named_as_such_and_not_as_a_bad_token() -> None:
+    # The tenant being unreachable is an operational problem. Reporting it as a refused
+    # credential would send someone to debug the caller instead of the network.
+    private, _document = _key_pair()
+
+    async def fetch() -> dict[str, Any]:
+        raise RuntimeError("the tenant is unreachable")
+
+    verifier = JwtServiceCredentials(
+        keys=JwksKeyStore(fetch_jwks=fetch, now=lambda: 0.0),
+        issuer=ISSUER,
+        audience=AUDIENCE,
+        allowed_client_ids=frozenset({CLIENT}),
+    )
+
+    with pytest.raises(ServiceCredentialError, match="signing keys are unavailable"):
+        await verifier.verify(_token(private))
 
 
 # --- the header itself --------------------------------------------------------------

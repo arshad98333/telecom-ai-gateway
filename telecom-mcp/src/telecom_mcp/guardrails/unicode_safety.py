@@ -36,7 +36,9 @@ INVISIBLE: Final[frozenset[str]] = frozenset(
         "‌",  # zero width non-joiner
         "‍",  # zero width joiner
         "‎",  # left-to-right mark
-        "‏",  # right-to-left mark
+        # The deny-list itself. This module is what detects these characters, so the
+        # trojan-source rule flags the one file that exists to enforce it.
+        "‏",  # right-to-left mark  # nosec B613
         "‪",  # left-to-right embedding
         "‫",  # right-to-left embedding
         "‬",  # pop directional formatting

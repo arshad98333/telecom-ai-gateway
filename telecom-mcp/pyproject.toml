@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 redis = ["redis>=5.0,<7"]
-http = ["uvicorn>=0.30,<1", "starlette>=0.37,<1"]
+http = ["uvicorn>=0.30,<1", "starlette>=1.3.1,<2"]
 # Tracing is an extra, not a dependency. The package must install and run on a laptop
 # without pulling a vendor SDK, and observability/tracing.py imports these lazily so a
 # missing extra is a configuration error at startup rather than an ImportError.

@@ -63,7 +63,14 @@ cov: ## Run tests with the coverage gate
 	cd "$(CURDIR)" && $(UV) run pytest --cov --cov-report=term-missing --cov-report=xml
 
 audit: ## Fail on known-vulnerable dependencies
-	cd "$(CURDIR)" && $(UV) run --with pip-audit pip-audit --strict
+	# Audits the locked dependency set rather than the installed environment. The
+	# project itself is an editable install and is not on the index, and both --strict
+	# and --skip-editable turn that into an error, so a plain `pip-audit --strict`
+	# fails for a reason that has nothing to do with a vulnerability.
+	cd "$(CURDIR)" && $(UV) export --frozen --all-extras --no-dev --no-emit-project \
+	    --format requirements-txt -q -o .audit-requirements.txt && \
+	  { $(UV) run --with pip-audit pip-audit --strict -r .audit-requirements.txt; \
+	    status=$$?; rm -f .audit-requirements.txt; exit $$status; }
 
 cov-mongo: ## Coverage including the MongoDB adapter; needs a real replica set
 	cd "$(CURDIR)" && $(UV) run pytest -m "mongo or not mongo" --cov \

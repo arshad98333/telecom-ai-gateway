@@ -318,9 +318,7 @@ async def load(store: Any, *, tenant_id: str, now: datetime) -> dict[str, int]:
     # The agent gets ten of the twelve accounts, so a refusal on the other two stays
     # demonstrable rather than theoretical.
     for cx_id, *_rest in CUSTOMER_PROFILES[:10]:
-        await store.assignments.assign(
-            tenant_id, DEMO_AGENT, cx_id, by=DEMO_SUPERVISOR, now=now
-        )
+        await store.assignments.assign(tenant_id, DEMO_AGENT, cx_id, by=DEMO_SUPERVISOR, now=now)
         written["agent_assignments"] += 1
 
     # --- tickets -------------------------------------------------------------------
@@ -437,7 +435,9 @@ async def load(store: Any, *, tenant_id: str, now: datetime) -> dict[str, int]:
 
 async def collection_counts(store: Any, names: list[str]) -> dict[str, int]:
     """Live counts straight from the database, so the report states fact, not intent."""
-    database = store._database  # noqa: SLF001 - a script, reading its own deployment
+    # A script reading its own deployment; the repository port deliberately does not
+    # expose the raw database, and nothing but a report has any business asking.
+    database = store._database
     return {name: await database[name].count_documents({}) for name in names}
 
 
@@ -532,13 +532,21 @@ def render_report(
   <div class="scroll">
   <table>
     <thead>
-      <tr><th>Collection</th><th class="n">Written this run</th><th class="n">Total in database</th></tr>
+      <tr>
+        <th>Collection</th>
+        <th class="n">Written this run</th>
+        <th class="n">Total in database</th>
+      </tr>
     </thead>
     <tbody>
 {managed_rows}
     </tbody>
     <tfoot>
-      <tr><td>Total</td><td class="n">{total_written}</td><td class="n">{sum(totals.get(n, 0) for n in MANAGED)}</td></tr>
+      <tr>
+        <td>Total</td>
+        <td class="n">{total_written}</td>
+        <td class="n">{sum(totals.get(n, 0) for n in MANAGED)}</td>
+      </tr>
     </tfoot>
   </table>
   </div>
@@ -564,16 +572,47 @@ def render_report(
   <table>
     <thead><tr><th>Collection</th><th>References</th></tr></thead>
     <tbody>
-      <tr><td><code>customers</code></td><td><code>CX-2001</code> &ndash; <code>CX-2012</code></td></tr>
-      <tr><td><code>services</code></td><td><code>SVC-B-0001</code> &ndash; <code>SVC-B-0012</code></td></tr>
-      <tr><td><code>orders</code></td><td><code>ORD-B-0001</code> &ndash; <code>ORD-B-0012</code></td></tr>
-      <tr><td><code>invoices</code></td><td><code>INV-B-0001</code> &ndash; <code>INV-B-0012</code></td></tr>
-      <tr><td><code>network_status</code></td><td><code>AREA-BULK-01</code> &ndash; <code>AREA-BULK-10</code></td></tr>
-      <tr><td><code>agent_assignments</code></td><td><code>{html.escape(DEMO_AGENT)}</code> &rarr; <code>CX-2001</code> &ndash; <code>CX-2010</code></td></tr>
-      <tr><td><code>tickets</code></td><td><code>TCK-bulk-0001</code> &ndash; <code>TCK-bulk-0012</code></td></tr>
-      <tr><td><code>callbacks</code></td><td><code>CB-bulk-0001</code> &ndash; <code>CB-bulk-0010</code></td></tr>
-      <tr><td><code>approval_requests</code></td><td><code>APR-bulk-0001</code> &ndash; <code>APR-bulk-0010</code></td></tr>
-      <tr><td><code>cases</code></td><td><code>CASE-bulk-0001</code> &ndash; <code>CASE-bulk-0010</code></td></tr>
+      <tr>
+        <td><code>customers</code></td>
+        <td><code>CX-2001</code> &ndash; <code>CX-2012</code></td>
+      </tr>
+      <tr>
+        <td><code>services</code></td>
+        <td><code>SVC-B-0001</code> &ndash; <code>SVC-B-0012</code></td>
+      </tr>
+      <tr>
+        <td><code>orders</code></td>
+        <td><code>ORD-B-0001</code> &ndash; <code>ORD-B-0012</code></td>
+      </tr>
+      <tr>
+        <td><code>invoices</code></td>
+        <td><code>INV-B-0001</code> &ndash; <code>INV-B-0012</code></td>
+      </tr>
+      <tr>
+        <td><code>network_status</code></td>
+        <td><code>AREA-BULK-01</code> &ndash; <code>AREA-BULK-10</code></td>
+      </tr>
+      <tr>
+        <td><code>agent_assignments</code></td>
+        <td><code>{html.escape(DEMO_AGENT)}</code> &rarr;
+            <code>CX-2001</code> &ndash; <code>CX-2010</code></td>
+      </tr>
+      <tr>
+        <td><code>tickets</code></td>
+        <td><code>TCK-bulk-0001</code> &ndash; <code>TCK-bulk-0012</code></td>
+      </tr>
+      <tr>
+        <td><code>callbacks</code></td>
+        <td><code>CB-bulk-0001</code> &ndash; <code>CB-bulk-0010</code></td>
+      </tr>
+      <tr>
+        <td><code>approval_requests</code></td>
+        <td><code>APR-bulk-0001</code> &ndash; <code>APR-bulk-0010</code></td>
+      </tr>
+      <tr>
+        <td><code>cases</code></td>
+        <td><code>CASE-bulk-0001</code> &ndash; <code>CASE-bulk-0010</code></td>
+      </tr>
     </tbody>
   </table>
   </div>
@@ -588,6 +627,11 @@ def render_report(
 """
 
 
+def _write_report(path: Path, contents: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents, encoding="utf-8")
+
+
 async def run(args: argparse.Namespace) -> int:
     settings = load_settings()
     context = build_context(settings, configure_logs=False)
@@ -595,10 +639,8 @@ async def run(args: argparse.Namespace) -> int:
     now = context.clock.now()
     try:
         written = await load(context.store, tenant_id=args.tenant, now=now)
-        totals = await collection_counts(
-            context.store, [*MANAGED, *UNTOUCHED]
-        )
-        database = context.store._database.name  # noqa: SLF001
+        totals = await collection_counts(context.store, [*MANAGED, *UNTOUCHED])
+        database = context.store._database.name
     finally:
         await context.store.close()
 
@@ -609,17 +651,15 @@ async def run(args: argparse.Namespace) -> int:
     say(f"  {sum(written.values())} records written into '{database}'")
 
     report = Path(args.report)
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(
-        render_report(
-            tenant_id=args.tenant,
-            when=now,
-            written=written,
-            totals=totals,
-            database=database,
-        ),
-        encoding="utf-8",
+    rendered = render_report(
+        tenant_id=args.tenant,
+        when=now,
+        written=written,
+        totals=totals,
+        database=database,
     )
+    # Writing a file is blocking, and this function is not. One thread, once, at the end.
+    await asyncio.to_thread(_write_report, report, rendered)
     say(f"  report written to {report}")
     say()
     return 0

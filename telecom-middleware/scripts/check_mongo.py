@@ -83,9 +83,7 @@ def check_placeholder(uri: str) -> str | None:
     """Catch the connection string that was copied from Atlas but never finished."""
     if "<db_password>" not in uri and "<password>" not in uri:
         return None
-    return (
-        "The connection string still contains the literal <db_password> placeholder."
-    )
+    return "The connection string still contains the literal <db_password> placeholder."
 
 
 def check_dns(uri: str, timeout: float) -> tuple[str | None, str]:
