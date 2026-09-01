@@ -1,0 +1,47 @@
+version: 2
+
+# Each package resolves its own dependencies with uv, but Dependabot has no "uv"
+# ecosystem — it understands uv.lock files through the "pip" ecosystem, resolving
+# against pyproject.toml in the given directory. One entry per package, matching the
+# monorepo layout the rest of CI already assumes.
+updates:
+  - package-ecosystem: "pip"
+    directory: "/telecom-mcp"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "telecom-mcp"]
+    commit-message:
+      prefix: "chore(telecom-mcp)"
+    groups:
+      telecom-mcp-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: "pip"
+    directory: "/telecom-middleware"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "telecom-middleware"]
+    commit-message:
+      prefix: "chore(telecom-middleware)"
+    groups:
+      telecom-middleware-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: "pip"
+    directory: "/telecom-mcp-client"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "telecom-mcp-client"]
+    commit-message:
+      prefix: "chore(telecom-mcp-client)"
+    groups:
+      telecom-mcp-client-dependencies:
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"

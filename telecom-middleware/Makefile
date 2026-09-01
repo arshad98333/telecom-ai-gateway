@@ -20,13 +20,16 @@ export UV_PROJECT_ENVIRONMENT
 BASE_IMAGE := $(shell awk '/^FROM /{print $$2; exit}' "$(CURDIR)/Dockerfile")
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev serve check-store migrate seed export-seed test test-fast test-int lint format typecheck check cov cov-mongo build clean audit docker-build docker-smoke
+.PHONY: help install lock-check dev serve check-store migrate seed export-seed test test-fast test-int lint format typecheck check cov cov-mongo build clean audit docker-build docker-smoke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-13s %s\n", $$1, $$2}'
 
 install: ## Install everything needed to work on this, from the lock file
 	cd "$(CURDIR)" && $(UV) sync --frozen --all-extras
+
+lock-check: ## Fail if uv.lock no longer matches pyproject.toml
+	cd "$(CURDIR)" && $(UV) lock --check
 
 dev: ## Run the API locally with reload (reads .env)
 	@$(call run_with_env,telecom-middleware serve --reload)
@@ -81,7 +84,7 @@ cov-mongo: ## Coverage including the MongoDB adapter; needs a real replica set
 	cd "$(CURDIR)" && $(UV) run pytest -m "mongo or not mongo" --cov \
 		--cov-config=coverage-mongo.toml --cov-report=term-missing --cov-report=xml
 
-check: lint typecheck cov ## Exactly what CI runs
+check: lock-check lint typecheck cov ## Exactly what CI runs
 
 build: ## Produce the deployable artifact
 	cd "$(CURDIR)" && $(UV) build
