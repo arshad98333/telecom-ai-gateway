@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Response
+from fastapi.responses import PlainTextResponse
 
 from telecom_middleware._version import __version__
 from telecom_middleware.api.dependencies import AppContextDep
@@ -42,3 +43,12 @@ async def readiness(context: AppContextDep, response: Response) -> dict[str, Any
         "version": __version__,
         "components": components,
     }
+
+
+@router.get("/metrics", summary="Prometheus scrape endpoint", include_in_schema=False)
+async def metrics() -> PlainTextResponse:
+    body = (
+        "# TYPE telecom_middleware_info gauge\n"
+        f'telecom_middleware_info{{version="{__version__}"}} 1\n'
+    )
+    return PlainTextResponse(body, media_type="text/plain; version=0.0.4")

@@ -1,236 +1,123 @@
 name: release
 
-# Publishes telecom-mcp-tools to PyPI and its image to GHCR, from a tag.
-#
-# This lives at the repository root because GitHub runs only root workflows —
-# telecom-mcp/.github/workflows/release.yml is kept for when that service is used as a
-# standalone repository, and does not execute from here. Every step therefore runs with
-# telecom-mcp as its working directory.
-#
-# Build the artifact once and promote that same artifact. Never rebuild for production,
-# because then production runs something that was never tested.
+# Container-only production release. PyPI/TestPyPI are deliberately not part of this
+# repo's deployment path: the MCP server and middleware are shipped as images.
 
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [production]
+  workflow_dispatch:
 
-# A tag is cut from `production` and nowhere else. Publishing a version that is not the
-# one customers are running is how a package index ends up as the most authoritative
-# wrong answer about what this service does.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  packages: write
+  id-token: write
+  attestations: write
 
 env:
-  # No secret to manage: the job's own GITHUB_TOKEN authenticates against the registry.
-  # Named for the package rather than the monorepo, so `docker pull` matches `pip install`.
-  IMAGE: ghcr.io/${{ github.repository_owner }}/telecom-mcp-tools
-  PACKAGE: telecom-mcp-tools
-  SERVICE: telecom-mcp
+  REGISTRY: ghcr.io
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: telecom-mcp
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: The tag must point at a commit that is on production
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin production
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/production; then
-            echo "::error title=Not released::${GITHUB_REF_NAME} points at a commit" \
-                 "that is not on production. Promote it first; a published version" \
-                 "that nobody is running is worse than no published version."
-            exit 1
-          fi
-          echo "tagged commit is on production"
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.12.3"
-
-      - name: The tag must match the packaged version
-        id: version
-        run: |
-          set -euo pipefail
-          packaged="$(uv run python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
-          tagged="${GITHUB_REF_NAME#v}"
-          if [ "$packaged" != "$tagged" ]; then
-            echo "::error title=Version mismatch::tag $tagged does not match packaged version $packaged"
-            exit 1
-          fi
-          echo "version=$packaged" >> "$GITHUB_OUTPUT"
-
-      - name: The changelog must describe this version
-        run: grep -q "\[${{ steps.version.outputs.version }}\]" CHANGELOG.md
-
-      - run: uv sync --frozen --all-extras
-      - run: make check
-
-      # Build into an empty directory. A stale wheel from a previous version sitting in
-      # dist/ is how `twine upload dist/*` ends up re-uploading, or failing on, a
-      # release nobody asked for.
-      - run: rm -rf dist && uv build
-
-      - name: The artifacts must carry no environment file and no private key
-        run: |
-          set -euo pipefail
-          found=0
-          for archive in dist/*.tar.gz; do
-            if tar tzf "$archive" | grep -Ev '\.env\.example$' | grep -E '(^|/)\.env' ; then
-              echo "::error title=Secret in sdist::$archive contains an environment file"
-              found=1
-            fi
-          done
-          for archive in dist/*.whl; do
-            if unzip -Z1 "$archive" | grep -Ev '\.env\.example$' | grep -E '(^|/)\.env' ; then
-              echo "::error title=Secret in wheel::$archive contains an environment file"
-              found=1
-            fi
-          done
-          if grep -rlqE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' dist/ 2>/dev/null; then
-            echo "::error title=Key material::a private key is inside the distribution"
-            found=1
-          fi
-          [ "$found" -eq 0 ] && echo "artifacts carry nothing they should not"
-
-      - name: The metadata must be valid for the index that will receive it
-        run: uvx twine check --strict dist/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: distribution
-          path: telecom-mcp/dist/*
-          if-no-files-found: error
-
-  testpypi:
-    needs: build
-    runs-on: ubuntu-24.04
-    environment: testpypi
-    permissions:
-      id-token: write  # trusted publishing; no long-lived token is stored anywhere
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: distribution
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          # A later job failing should not cost a version number. If this artifact is
-          # already on TestPyPI from an earlier attempt at the same version, carry on:
-          # the real index is the one where a re-upload must never be possible.
-          skip-existing: true
-
-  verify-from-testpypi:
-    needs: [build, testpypi]
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.12.3"
-      - name: Install from TestPyPI into an empty environment and verify it runs
-        run: |
-          set -euo pipefail
-          uv venv /tmp/verify --python 3.12
-          for attempt in 1 2 3 4 5; do
-            if uv pip install --python /tmp/verify/bin/python \
-                --index-url https://test.pypi.org/simple/ \
-                --extra-index-url https://pypi.org/simple/ \
-                "${PACKAGE}==${{ needs.build.outputs.version }}"; then
-              break
-            fi
-            echo "index not ready yet, retrying"; sleep 15
-          done
-          /tmp/verify/bin/python -c "
-          import telecom_mcp
-          from telecom_mcp.adapters.fake_backend import load_seed
-          from telecom_mcp.domain.tools import TOOL_SPECS
-          assert telecom_mcp.__version__ == '${{ needs.build.outputs.version }}'
-          assert 'tenants' in load_seed()
-          assert len(TOOL_SPECS) == 8
-          print('verified from TestPyPI')
-          "
-          TELECOM_MCP_LOCAL_VERIFIER_SECRET=release-check-secret-long-enough-32 \
-            /tmp/verify/bin/telecom-mcp check-config > /dev/null
-
   image:
-    # Built from the same tag as the distribution, and published alongside it, so the
-    # image and the wheel are never a version apart.
-    needs: [build, verify-from-testpypi]
+    name: image (${{ matrix.service }})
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@v4
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: telecom-mcp
+            image: telecom-mcp-tools
+            port: "8080"
+            secret_env: TELECOM_MCP_LOCAL_VERIFIER_SECRET
+          - service: telecom-middleware
+            image: telecom-middleware
+            port: "9000"
+            secret_env: TELECOM_MW_LOCAL_VERIFIER_SECRET
 
-      - name: Lowercase the image name
-        id: name
-        run: echo "image=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          image="${REGISTRY}/${owner}/${{ matrix.image }}"
+          short_sha="${GITHUB_SHA::12}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
+
       - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}
+          load: true
+          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: The image must boot and expose operations endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="${{ matrix.service }}-release-smoke-${GITHUB_RUN_ID}"
+          port="${{ matrix.port }}"
+          cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          docker run -d --name "$name" -p "${port}:${port}" \
+            -e "${{ matrix.secret_env }}=release-check-secret-long-enough-32" \
+            -e TELECOM_MCP_HTTP_HOST=0.0.0.0 \
+            -e TELECOM_MW_HTTP_HOST=0.0.0.0 \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}" >/dev/null
+
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${port}/readyz" >/dev/null; then
+              curl -fsS "http://127.0.0.1:${port}/healthz" >/dev/null
+              curl -fsS "http://127.0.0.1:${port}/metrics" >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs "$name"
+          exit 1
+
+      - uses: docker/build-push-action@v6
         id: push
         with:
-          context: telecom-mcp
+          context: ${{ matrix.service }}
           platforms: linux/amd64,linux/arm64
           push: true
           provenance: mode=max
           sbom: true
           tags: |
-            ${{ steps.name.outputs.image }}:${{ needs.build.outputs.version }}
-            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image }}:production
           labels: |
-            org.opencontainers.image.version=${{ needs.build.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Signed provenance, so a consumer can prove this image came from this workflow
-      # on this commit rather than from someone's laptop.
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-name: ${{ steps.name.outputs.image }}
+          subject-name: ${{ steps.meta.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
-      - name: The published image must start and validate its own configuration
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=release-check-secret-long-enough-32 \
-            "${{ steps.name.outputs.image }}:${{ needs.build.outputs.version }}" \
-            check-config > /dev/null
-          echo "image runs"
-
-  pypi:
-    needs: [build, verify-from-testpypi, image]
-    runs-on: ubuntu-24.04
-    environment: pypi  # requires a human approval on the environment
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: distribution
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Published digest
+        run: echo "${{ steps.meta.outputs.image }}@${{ steps.push.outputs.digest }}"

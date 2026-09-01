@@ -19,7 +19,9 @@ on:
 
 concurrency:
   group: mongo-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep every run's result. The Mongo job is short enough that cancelling in-progress
+  # runs creates more noise than it saves, and GitHub reports those cancellations as red.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -39,7 +41,7 @@ jobs:
       TELECOM_MW_MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # The compose file's mongo service already initiates rs0 in its healthcheck and
       # reports healthy only once a primary has been elected. Reusing it means CI and a
@@ -52,7 +54,7 @@ jobs:
           docker compose exec -T mongo mongosh --quiet --eval \
             'JSON.stringify({set: rs.status().set, primary: rs.isMaster().primary, version: db.version()})'
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
           cache-dependency-glob: telecom-middleware/uv.lock
@@ -93,7 +95,7 @@ jobs:
         if: failure()
         run: docker compose logs --no-color mongo | tail -n 200
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mongo-results

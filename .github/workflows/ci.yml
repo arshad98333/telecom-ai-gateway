@@ -16,7 +16,10 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep every pushed run visible. Cancelling older runs paints them red in Actions,
+  # which made successful fixes look like failures while a newer commit was already
+  # running.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -47,9 +50,9 @@ jobs:
       UV_PYTHON: ${{ matrix.python }}
       UV_ALL_EXTRAS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -64,7 +67,7 @@ jobs:
       - name: Lint, types, tests, coverage
         run: make check
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-${{ matrix.service }}-py${{ matrix.python }}
@@ -76,8 +79,8 @@ jobs:
     name: quickstart
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v9
         with:
           version: ${{ env.UV_VERSION }}
       - name: make setup, from a clean clone
@@ -89,8 +92,8 @@ jobs:
     name: end to end
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v9
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -107,11 +110,11 @@ jobs:
     name: security
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # the secret scan reads history, not just the diff
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9
         with:
           version: ${{ env.UV_VERSION }}
 
@@ -145,7 +148,7 @@ jobs:
       matrix:
         service: [telecom-mcp, telecom-middleware]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build the image and prove it answers readiness
         working-directory: ${{ matrix.service }}
         run: make docker-smoke

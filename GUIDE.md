@@ -1122,21 +1122,19 @@ not execute from here.
 | `security` | dependency audit, gitleaks over the whole history, bandit |
 | `container` | builds both images and proves each answers readiness |
 | `mongo` (separate workflow) | the 43 Mongo tests against an ephemeral replica set |
-| `release` (separate workflow, on a `v*.*.*` tag) | publishes `telecom-mcp-tools` to PyPI and GHCR — see [publishing](#publishing-telecom-mcp-tools-to-pypi) |
+| `release` (separate workflow, on `production` or manual dispatch) | publishes signed GHCR images for the MCP server and middleware |
 
 ### Deploying
 
-There is no cloud account in this pipeline. GitHub Actions builds, tests and publishes;
-what runs the image is your business, and the image is the artifact.
-
-A tag publishes two things at the same version: the wheel on PyPI, and a multi-arch image
-on GitHub's own registry, built from the same commit with signed provenance.
+There is no cloud account in this pipeline. GitHub Actions builds, tests and publishes
+container images; what runs those images is your business, and the image digest is the
+artifact.
 
 ```bash
-docker pull ghcr.io/arshad98333/telecom-mcp-tools:1.1.1
+docker pull ghcr.io/arshad98333/telecom-mcp-tools:production
 docker run --rm -p 8080:8080 \
   -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes \
-  ghcr.io/arshad98333/telecom-mcp-tools:1.1.1
+  ghcr.io/arshad98333/telecom-mcp-tools:production
 ```
 
 Anything that can run a container can run this: a VM with `docker compose`, a managed
@@ -1144,8 +1142,8 @@ container service, a Kubernetes cluster. The root `docker-compose.yml` is a work
 of the whole system, and `telecom-mcp/infra/azure/` holds a Bicep template for one specific
 provider, unused unless you choose it.
 
-**Promote by digest, never rebuild.** The image CI built from a tag is the image that runs;
-rebuilding for production ships something no test ever saw.
+**Promote by digest, never rebuild.** The image CI built from `production` is the image
+that runs; rebuilding for production ships something no test ever saw.
 
 ```bash
 docker pull ghcr.io/arshad98333/telecom-mcp-tools@sha256:<digest>
@@ -1158,133 +1156,29 @@ Configuration is environment variables ([section 16](#16-reference)), and the se
 refuses to start on a bad set rather than starting badly. Whatever runs it should read
 `/readyz` before sending traffic and `/healthz` to decide on a restart.
 
-### Publishing `telecom-mcp-tools` to PyPI
+### Publishing Container Images
 
-Only the tool server is published — it is the piece other people install. The middleware
-is deployed, not distributed.
+The production artifact is a container image. The root release workflow publishes both
+services to GHCR:
 
-**The workflow lives at `.github/workflows/release.yml`, in the repository root.** GitHub
-runs only root workflows; `telecom-mcp/.github/workflows/release.yml` is kept for when that
-service is used as a standalone repository and does **not** execute from here. Every step
-in the root copy runs with `telecom-mcp` as its working directory.
+- `ghcr.io/arshad98333/telecom-mcp-tools`
+- `ghcr.io/arshad98333/telecom-middleware`
 
-#### One-time setup, before the first release
+The workflow lives at `.github/workflows/release.yml`, in the repository root, and runs
+on pushes to `production` or manual dispatch. It builds each image, boots it locally,
+checks `/readyz`, `/healthz` and `/metrics`, then publishes multi-architecture images
+with SBOM and signed provenance.
 
-**1. Reserve the name with a pending publisher on PyPI.** The project does not exist on the
-index yet, so a pending publisher is what creates it on first upload. Sign in at
-<https://pypi.org>, go to **Your projects → Publishing → Add a pending publisher**
-(<https://pypi.org/manage/account/publishing/>) and fill in *exactly*:
-
-| Field | Value |
-|---|---|
-| PyPI project name | `telecom-mcp-tools` |
-| Owner | `arshad98333` |
-| Repository name | `telecom-ai-gateway` |
-| Workflow name | `release.yml` |
-| Environment name | `pypi` |
-
-> ⚠️ **The repository name is the monorepo, `telecom-ai-gateway`** — not `telecom-mcp-tools`.
-> The publisher is matched against the repository the workflow runs in, and the package
-> name is only the first column. Getting this wrong fails at the upload step with a message
-> about the trusted publisher not being configured, which reads like a PyPI outage and is
-> not.
-
-**2. Repeat on TestPyPI** at <https://test.pypi.org/manage/account/publishing/>, identically,
-but with environment name **`testpypi`**. The workflow publishes there first and installs
-from it before it touches the real index.
-
-**3. Create both environments in GitHub** — **Settings → Environments → New environment** —
-named `testpypi` and `pypi`, character for character. Add a **required reviewer to `pypi`
-only**. That approval is the last human gate before a version becomes permanent.
-
-**4. Nothing else.** There is no API token anywhere in this repository and there should
-never be one; PyPI authenticates the workflow itself over OpenID Connect.
-
-#### Cutting a release
-
-**Step 1 — bump the version**, on `development`. One place:
-
-```
-telecom-mcp/pyproject.toml     version = "1.2.0"
-```
-
-**Step 2 — describe it.** In `telecom-mcp/CHANGELOG.md`, move the Unreleased entries under
-a new heading:
-
-```markdown
-## [1.2.0] - 2026-09-01
-```
-
-CI greps for that exact version string, so the heading is not optional.
-
-**Step 3 — prove it locally, before the tag exists:**
+Promote the digest that passed:
 
 ```bash
-cd telecom-mcp
-make check
-rm -rf dist && uv build
-uvx twine check --strict dist/*
+docker pull ghcr.io/arshad98333/telecom-mcp-tools@sha256:<digest>
+docker pull ghcr.io/arshad98333/telecom-middleware@sha256:<digest>
 ```
 
-**Step 4 — promote it the normal way.** `development` → `staging` → `production`, as pull
-requests. **Do not tag before it reaches `production`** — the workflow refuses a tag that
-does not point at a commit on that branch, because a published version nobody is running is
-worse than no published version.
-
-**Step 5 — tag and push:**
-
-```bash
-git switch production && git pull
-git tag -a v1.2.0 -m "telecom-mcp-tools 1.2.0"
-git push origin v1.2.0
-```
-
-**Step 6 — watch it.** `gh run watch`, or the Actions tab. The order is:
-
-```
-build ──► artifact safety gate ──► TestPyPI ──► install from TestPyPI and run it
-                                                        │
-                                                        ▼
-                                        container image + signed provenance
-                                                        │
-                                                        ▼
-                                          ⏸ waits for your approval
-                                                        │
-                                                        ▼
-                                                      PyPI
-```
-
-**Step 7 — approve.** The `pypi` job sits in "Waiting" until you click **Review deployments
-→ Approve**. Everything before that point is reversible; this is the step that is not.
-
-**Step 8 — confirm:**
-
-```bash
-uv run --with telecom-mcp-tools --no-project -- telecom-mcp --version
-pip index versions telecom-mcp-tools
-```
-
-#### What the workflow checks that you cannot easily check by hand
-
-- The tagged commit is an ancestor of `production`.
-- The tag matches the packaged version — `v1.2.0` against `version = "1.2.0"`.
-- `CHANGELOG.md` contains that version.
-- `make check` — ruff, mypy strict, the full suite, the 95% coverage floor.
-- **The built archives contain no `.env` and no private key.** Checked against the archives themselves, not against the build configuration, because the configuration is what would be wrong.
-- `twine check --strict` — the README renders on the index and the metadata is valid for it.
-- The wheel installs into an empty interpreter, imports, reports the right version, carries its seed data, exposes exactly eight tools, and `telecom-mcp check-config` runs.
-- **The published image starts and validates its own configuration.** This is the last check and the one that has already earned its place: an image can build, push and sign perfectly and still be unable to import itself (`docs/decisions/0013`).
-
-#### If it goes wrong
-
-| Situation | What to do |
-|---|---|
-| The `pypi` job fails but TestPyPI succeeded | The artifact is identical, so it is almost always the trusted-publisher configuration on the real index or the `pypi` environment not existing. Fix it and re-run the job — **nothing was uploaded** |
-| "Trusted publisher not configured" | The owner, repository, workflow filename or environment name does not match the form. The repository is `telecom-ai-gateway` |
-| The install-from-TestPyPI step cannot find the version | The index takes a moment; the step already retries five times. If it still fails, the upload was rejected and the upload job's log says why |
-| A job **after** TestPyPI failed (the image, say) | The wheel is fine but that version number is spent: TestPyPI has it, and the tag is used. Fix the cause, bump the patch version, add a CHANGELOG entry saying why the version exists, and tag again. Do not move an existing tag |
-| The tag was refused as not on production | Promote first, delete the tag (`git tag -d v1.2.0 && git push --delete origin v1.2.0`), tag again |
-| **A broken version is already on PyPI** | You cannot replace it, ever. **Yank** it — Manage → Releases → Options → Yank — which leaves it installable by exact pin for anyone already depending on it but out of resolution, then release a fix as a new version. Deleting frees nothing: the number stays burnt |
+If release fails, fix forward on `development`, promote through the normal branches, and
+run release again. Do not publish Python packages from this repository and do not rebuild
+outside CI for production.
 
 #### Version numbers
 
@@ -1296,11 +1190,9 @@ tool, or a changed error path is a **minor**. Fixes are patches.
 #### What consumers get
 
 ```bash
-pip install telecom-mcp-tools[http]
-uvx --from 'telecom-mcp-tools[http]' telecom-mcp serve --transport http
 docker run --rm -p 8080:8080 \
   -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes \
-  ghcr.io/arshad98333/telecom-mcp-tools:latest
+  ghcr.io/arshad98333/telecom-mcp-tools:production
 ```
 
 ### Rolling back
@@ -1315,7 +1207,7 @@ against a healthy middleware.
 Rolling back is not an admission of anything. It is the cheap, reversible action.
 
 1. **Announce** in the incident channel: version, symptom, who is running it.
-2. **Find the last known-good digest** — on the previous release's deployment record and in that tag's `base-image-digest` and `distribution` artifacts.
+2. **Find the last known-good digest** — on the previous release's deployment record or in the release workflow logs.
 3. **Redeploy that digest.** Not a tag. There is no build step in a rollback, which is what makes it fast.
 4. **Watch for five minutes.** `/readyz` healthy on every replica, and `tool_calls_total{outcome="failed"}` no longer climbing.
 5. **Verify one real journey** — `get_customer_account` for a seeded identity — then confirm its audit record exists.
@@ -1328,9 +1220,8 @@ Finding the previous digest:
 docker image inspect ghcr.io/arshad98333/telecom-mcp-tools:1.1.0 --format '{{index .RepoDigests 0}}'
 ```
 
-Each release run also records its digest in the `base-image-digest` and `distribution`
-artifacts, so the answer survives even if the tag has moved. Redeploy that digest with
-whatever starts your containers, then work through the seven steps above.
+Each release run prints the image digest. Redeploy that digest with whatever starts your
+containers, then work through the seven steps above.
 
 Then fix forward on `development` and promote. **Never build a hotfix straight for
 production**: the artifact that runs there is the one a tag built and the tests passed
@@ -1577,11 +1468,11 @@ make validate
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| The release run says the tag is not on production | You tagged before promoting | Promote first, then `git tag -d v1.1.1 && git push --delete origin v1.1.1` and tag again. **This is the check working** |
+| The release image smoke step fails | The image built but did not serve `/readyz`, `/healthz` and `/metrics` | Read the container logs in that step, fix forward on `development`, promote again |
 | `ci` fails on "Promotion path" | A PR from the wrong branch | Only `development → staging` and `staging → production` |
 | `ci` fails on "Not a fast-forward" | The target has commits the source does not | `git checkout development && git merge --ff-only origin/staging`, push, reopen |
-| A broken version is already on PyPI | You cannot replace it, ever | **Yank** it (Manage → Releases → Options → Yank) and release a fix as a new version. Deleting frees nothing; the number stays burnt |
-| TestPyPI succeeded, PyPI failed | Almost always the trusted-publisher configuration on the real index, or the `pypi` environment not existing | Fix it and re-run; nothing was uploaded |
+| A bad image reached production | Production deployed a digest that passed but behaved badly in its environment | Roll back to the last known-good digest, then fix forward |
+| A branch push shows multiple red canceled runs | Older CI used `cancel-in-progress` and GitHub colored superseded runs red | Current workflows keep every run's final result instead |
 
 ### VS Code
 

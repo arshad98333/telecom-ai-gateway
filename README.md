@@ -176,9 +176,9 @@ the whole history, bandit, both container smoke tests, the 43 MongoDB tests agai
 replica set it creates and destroys, and `make setup` from a clean clone twice, so the
 quickstart above cannot quietly stop being true.
 
-A `v*.*.*` tag on `production` publishes `telecom-mcp-tools` to PyPI and GHCR, through
-TestPyPI first, with a human approval before the real index.
-[How to cut one](GUIDE.md#publishing-telecom-mcp-tools-to-pypi).
+Pushing `production` publishes signed GHCR images for `telecom-mcp-tools` and
+`telecom-middleware`. Production should deploy those images by digest, not rebuild them.
+[How to operate that path](GUIDE.md#deploying).
 
 ---
 
