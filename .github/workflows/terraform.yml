@@ -1,0 +1,68 @@
+name: terraform
+
+# Static validation for the Auth0 Terraform under infra/. No credential, no state
+# backend and no plan against live infrastructure — that needs a real non-prod Auth0
+# tenant and secrets this repository does not carry. `fmt` and `validate` are the
+# honest subset: they catch a malformed or drifted-from-convention change before a
+# human ever runs `terraform plan` by hand.
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [development, staging, production, main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.9.8"
+
+jobs:
+  validate:
+    name: fmt + validate (${{ matrix.module }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # One entry per root Terraform module under infra/. Add a line here when a
+        # second one is added; validate does not recurse into unrelated roots on its
+        # own, and fmt -recursive is run once against the whole tree below instead.
+        module: [auth0]
+    defaults:
+      run:
+        working-directory: infra/${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check (whole infra/ tree)
+        if: matrix.module == 'auth0'
+        working-directory: infra
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (no backend, no credentials)
+        # -backend=false skips the azurerm backend entirely, so this needs no Azure
+        # storage account, no lease and no state — only the provider plugin.
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        # Validates syntax, internal consistency and provider schema use. It does not
+        # need auth0_domain/client_id/client_secret to be real, or even set: validate
+        # checks the configuration is well-formed, not that the values resolve against
+        # a live tenant.
+        run: terraform validate
