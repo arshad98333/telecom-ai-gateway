@@ -14,6 +14,11 @@ endef
 UV_PROJECT_ENVIRONMENT ?= $(CURDIR)/.venv
 export UV_PROJECT_ENVIRONMENT
 
+#: The base image the Dockerfile actually builds from. Read from it rather than
+#: repeated here, because a digest recorded for one image and a container built from
+#: another is worse than no record at all. See docs/decisions/0004-container-base.md.
+BASE_IMAGE := $(shell awk '/^FROM /{print $$2; exit}' "$(CURDIR)/Dockerfile")
+
 .DEFAULT_GOAL := help
 .PHONY: help install dev serve check-store migrate seed export-seed test test-fast test-int lint format typecheck check cov cov-mongo build clean audit docker-build docker-smoke
 
@@ -84,7 +89,12 @@ build: ## Produce the deployable artifact
 docker-build: ## Build the container image
 	cd "$(CURDIR)" && docker build -t telecom-middleware:local .
 	mkdir -p "$(CURDIR)/dist"
-	docker image inspect python:3.12-slim-bookworm --format '{{index .RepoDigests 0}}' > "$(CURDIR)/dist/base-image-digest.txt"
+	# BuildKit, which is the default builder, keeps base layers in its own cache rather
+	# than the image store. So after a successful build `python:3.12-slim-bookworm` is
+	# not in `docker images` at all, and inspecting it fails with "No such image". The
+	# pull is what puts it there, with the RepoDigests the next line reads.
+	docker pull -q $(BASE_IMAGE)
+	docker image inspect $(BASE_IMAGE) --format '{{index .RepoDigests 0}}' > "$(CURDIR)/dist/base-image-digest.txt"
 	@echo "base image digest recorded in dist/base-image-digest.txt"
 
 docker-smoke: docker-build ## Start the built image and prove it answers readiness
