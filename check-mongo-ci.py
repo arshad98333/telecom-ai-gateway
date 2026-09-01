@@ -243,9 +243,13 @@ def main() -> int:
     code, output = run(["uv", "run", "python", "-c", PREFLIGHT], MIDDLEWARE, env)
     say(output.rstrip() or "(no output)")
     if code != 0:
-        say("\n      The suite cannot pass until the above does. A credential scoped to one")
-        say("      database cannot create the throwaway ones each test needs: in Atlas that")
-        say("      is Database Access -> Edit -> Read and write to any database.")
+        say("\n      The suite cannot pass until the above does. Each test creates its own")
+        say("      throwaway database and drops it afterwards, so the credential needs both")
+        say("      read/write and dropDatabase across databases it has never seen.")
+        say("      dropDatabase is a dbAdmin action, not a readWrite one, so Atlas's")
+        say("      'Read and write to any database' is not enough on its own: in Atlas use")
+        say("      Database Access -> Edit -> Atlas admin, or add dbAdminAnyDatabase.")
+        say("      The CI job does not need any of this - its replica set runs without auth.")
         if start_mongo and not args.keep:
             run(["docker", "compose", "down", "-v"], ROOT)
         return 1
