@@ -167,3 +167,23 @@ def test_the_example_environment_file_documents_every_setting() -> None:
 
     assert expected - documented == set(), "settings missing from .env.example"
     assert documented - expected == set(), "stale entries in .env.example"
+
+
+def test_an_explicit_mapping_ignores_the_ambient_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mapping given is the whole environment, or the suite depends on the shell.
+
+    ``Settings`` is a ``BaseSettings``: without the isolated source list, its environment
+    source runs even under ``model_validate``, so an exported ``TELECOM_MCP_`` variable
+    silently overrides a default the caller never asked to change. The CI job that stands
+    up a replica set exports TELECOM_MCP_BACKEND, and six tests asserting the safe defaults
+    saw a configured backend instead. This is that regression.
+    """
+    monkeypatch.setenv("TELECOM_MCP_BACKEND", "http")
+    monkeypatch.setenv("TELECOM_MCP_ENV", "production")
+
+    settings = load_settings(LOCAL_ENV)
+
+    assert settings.backend == "fake"
+    assert settings.env == "local"

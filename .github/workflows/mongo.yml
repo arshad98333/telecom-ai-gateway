@@ -30,17 +30,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
+    # Only the one variable the contract fixture reads. Application configuration does
+    # not belong at job level: every test in the run inherits it, and the six that assert
+    # the safe defaults are entitled to an empty environment. load_settings() now ignores
+    # the ambient environment when it is handed a mapping, and this keeps the job honest
+    # regardless.
     env:
-      TELECOM_MW_ENV: local
-      TELECOM_MW_STORE: mongodb
       TELECOM_MW_MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false
-      TELECOM_MW_MONGODB_DATABASE: telecom_ci
-      TELECOM_MW_CHANGE_STREAM_ENABLED: "true"
-      # Local verifier only. The settings validator refuses it when ENV=production, so
-      # this cannot leak into a deployed configuration by being copied.
-      TELECOM_MW_IDENTITY_VERIFIER: local
-      TELECOM_MW_LOCAL_VERIFIER_SECRET: ci-only-secret-not-for-production-0123456789
-      TELECOM_MW_JWT_AUDIENCE: https://api.telecom.example/v1
 
     steps:
       - uses: actions/checkout@v4

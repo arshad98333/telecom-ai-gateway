@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, ValidationError, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from telecom_mcp._version import __version__
 from telecom_mcp.domain.errors import ConfigurationError
@@ -332,6 +332,33 @@ class Settings(BaseSettings):
         return data
 
 
+class _ExplicitSettings(Settings):
+    """Validated from exactly the mapping it is given, with no ambient environment.
+
+    ``Settings`` is a ``BaseSettings``, so its environment source runs even under
+    ``model_validate`` - a caller that passes an explicit mapping still picks up every
+    ``TELECOM_MCP_`` variable that happens to be exported. That makes a test suite
+    depend on the shell it runs in: the CI job that stands up a replica set exports
+    ``TELECOM_MCP_MONGODB_URI``, and six tests asserting the safe defaults saw a
+    configured database instead.
+
+    Only tests and diagnostics pass a mapping; the process boundary calls
+    ``load_settings()`` with nothing and still reads the real environment.
+    """
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],  # noqa: ARG003 - the signature is pydantic's
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,  # noqa: ARG003 - dropped on purpose
+        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003 - dropped on purpose
+        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003 - dropped
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # The mapping, and nothing else. Dropping the other three sources is the point.
+        return (init_settings,)
+
+
 def load_settings(environ: dict[str, str] | None = None) -> Settings:
     """Load and validate settings, or fail with one message naming every problem.
 
@@ -342,7 +369,7 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
     try:
         if environ is None:
             return Settings()
-        return Settings.model_validate(_from_environ(environ))
+        return _ExplicitSettings.model_validate(_from_environ(environ))
     except ValidationError as exc:
         raise ConfigurationError(_format_validation_error(exc), operation="load_settings") from exc
     except ValueError as exc:
