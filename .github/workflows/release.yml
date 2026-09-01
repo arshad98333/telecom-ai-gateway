@@ -2,6 +2,20 @@ name: release
 
 # Container-only production release. PyPI/TestPyPI are deliberately not part of this
 # repo's deployment path: the MCP server and middleware are shipped as images.
+#
+# The artifact that is tested is the artifact that ships. Each image is built once,
+# pushed by digest with no tag, pulled back out of the registry, booted and checked --
+# and only then tagged `:production`. Nothing is rebuilt between the check and the
+# promotion, because a rebuild ships bytes no test ever saw.
+#
+# On arm64: the index is multi-arch, but only the amd64 manifest is booted here. The
+# sole deployment target in this repository is Azure Container Apps
+# (telecom-mcp/infra/azure/main.bicep), which runs amd64; nothing in the docs, infra or
+# GUIDE names arm64 as somewhere this is deployed. It is built so the images run on an
+# Apple Silicon laptop. Booting it too would mean a QEMU emulation step on every
+# release to test a platform nobody deploys, so it is deliberately not done -- if arm64
+# ever becomes a real target, add `docker/setup-qemu-action` and a second smoke run
+# with `--platform linux/arm64`.
 
 on:
   push:
@@ -33,10 +47,12 @@ jobs:
             image: telecom-mcp-tools
             port: "8080"
             secret_env: TELECOM_MCP_LOCAL_VERIFIER_SECRET
+            host_env: TELECOM_MCP_HTTP_HOST
           - service: telecom-middleware
             image: telecom-middleware
             port: "9000"
             secret_env: TELECOM_MW_LOCAL_VERIFIER_SECRET
+            host_env: TELECOM_MW_HTTP_HOST
 
     steps:
       - uses: actions/checkout@v6
@@ -60,34 +76,65 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      # Build once, push once, and never build again. The image is pushed *by digest*
+      # with no tag attached, so nothing can pull it yet: `:production` is only made to
+      # point at this digest after it has booted and answered, further down.
+      #
+      # The ordering has one deliberate consequence worth knowing: a digest that fails
+      # the smoke check below is already in GHCR, untagged. That is accepted rather than
+      # worked around. An untagged manifest is unreachable by tag, is not what any
+      # deployment promotes, and GHCR's own garbage collection reclaims it. The
+      # alternative -- tagging first and untagging on failure -- means `:production`
+      # briefly points at an image that was never tested, which is the failure this
+      # whole restructure exists to remove.
+      - name: Build and push by digest, multi-arch, untagged
+        id: push
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.service }}
-          load: true
-          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
+          platforms: linux/amd64,linux/arm64
+          provenance: mode=max
+          sbom: true
+          outputs: type=image,name=${{ steps.meta.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: The image must boot and expose operations endpoints
+      # Pulled back out of the registry by digest, so what boots here is the published
+      # artifact rather than a local build that resembles it. The runner is amd64, so
+      # this exercises the amd64 manifest inside the index -- which is the one that gets
+      # deployed; see the note on arm64 in the header comment.
+      - name: The published image must boot and expose operations endpoints
         shell: bash
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          PORT: ${{ matrix.port }}
+          SECRET_ENV: ${{ matrix.secret_env }}
+          HOST_ENV: ${{ matrix.host_env }}
         run: |
           set -euo pipefail
           name="${{ matrix.service }}-release-smoke-${GITHUB_RUN_ID}"
-          port="${{ matrix.port }}"
           cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
 
-          docker run -d --name "$name" -p "${port}:${port}" \
-            -e "${{ matrix.secret_env }}=release-check-secret-long-enough-32" \
-            -e TELECOM_MCP_HTTP_HOST=0.0.0.0 \
-            -e TELECOM_MW_HTTP_HOST=0.0.0.0 \
-            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}" >/dev/null
+          docker pull "${IMAGE}@${DIGEST}"
+
+          # Each service is handed its own two variables and nothing else. Passing both
+          # services' prefixes to both images worked only because each ignores the
+          # other's, which is luck rather than configuration.
+          docker run -d --name "$name" -p "${PORT}:${PORT}" \
+            -e "${SECRET_ENV}=release-check-secret-long-enough-32" \
+            -e "${HOST_ENV}=0.0.0.0" \
+            "${IMAGE}@${DIGEST}" >/dev/null
 
           for _ in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${port}/readyz" >/dev/null; then
-              curl -fsS "http://127.0.0.1:${port}/healthz" >/dev/null
-              curl -fsS "http://127.0.0.1:${port}/metrics" >/dev/null
+            if curl -fsS "http://127.0.0.1:${PORT}/readyz" >/dev/null; then
+              curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null
+              curl -fsS "http://127.0.0.1:${PORT}/metrics" >/dev/null
+              echo "booted and answered /readyz, /healthz and /metrics"
               exit 0
             fi
             sleep 1
@@ -96,22 +143,41 @@ jobs:
           docker logs "$name"
           exit 1
 
-      - uses: docker/build-push-action@v6
-        id: push
-        with:
-          context: ${{ matrix.service }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          provenance: mode=max
-          sbom: true
-          tags: |
-            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
-            ${{ steps.meta.outputs.image }}:production
-          labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # Tags are written onto the digest that just passed. `imagetools create` copies a
+      # manifest reference; it does not rebuild, so no new bytes and no new digest are
+      # produced -- which is asserted immediately below rather than assumed.
+      - name: Tag the digest that passed
+        shell: bash
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${IMAGE}:${SHORT_SHA}" \
+            -t "${IMAGE}:production" \
+            "${IMAGE}@${DIGEST}"
+
+      - name: Both tags must resolve to the digest that was tested
+        shell: bash
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          for tag in "${SHORT_SHA}" production; do
+            resolved="$(docker buildx imagetools inspect "${IMAGE}:${tag}" \
+              --format '{{ .Manifest.Digest }}')"
+            if [ "$resolved" != "$DIGEST" ]; then
+              echo "::error title=Digest drift::${IMAGE}:${tag} resolves to ${resolved}," \
+                   "not the tested digest ${DIGEST}. The tag was not applied to the" \
+                   "artifact that passed the smoke check; do not deploy it."
+              exit 1
+            fi
+            echo "${IMAGE}:${tag} -> ${resolved}"
+          done
 
       - uses: actions/attest-build-provenance@v2
         with:
