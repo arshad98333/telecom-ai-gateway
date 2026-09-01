@@ -23,6 +23,8 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from bson.binary import UuidRepresentation
+from bson.codec_options import CodecOptions
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
@@ -518,9 +520,24 @@ class MongoIdempotencyRepository:
 class MongoStore:
     """The MongoDB-backed store. One client per process, created at startup."""
 
+    #: BSON dates carry no zone, so pymongo returns naive datetimes unless it is told
+    #: otherwise. Every timestamp this system stores is UTC and every comparison it makes
+    #: is against an aware one, so a naive value read back does not merely look wrong: it
+    #: raises `can't compare offset-naive and offset-aware datetimes` the first time a
+    #: lockout is checked. Setting it here rather than on the client means no caller can
+    #: construct a store that reads naive timestamps.
+    #:
+    #: The uuid representation is restated because CodecOptions replaces the client's
+    #: rather than extending it, and dropping it would change how UUIDs are encoded.
+    _CODEC_OPTIONS: CodecOptions[dict[str, Any]] = CodecOptions(
+        tz_aware=True,
+        tzinfo=UTC,
+        uuid_representation=UuidRepresentation.STANDARD,
+    )
+
     def __init__(self, client: Any, database_name: str) -> None:
         self._client = client
-        self._database = client[database_name]
+        self._database = client.get_database(database_name, codec_options=self._CODEC_OPTIONS)
         self.customers = MongoCustomerRepository(self._database)
         self.services = MongoServiceRepository(self._database)
         self.orders = MongoOrderRepository(self._database)

@@ -65,24 +65,33 @@ jobs:
         working-directory: telecom-middleware
         run: uv sync --frozen --all-extras
 
-      # -m mongo is the marker the suite deselects locally. Running it here is the whole
-      # point of the job, so an empty selection is a failure, not a pass: --strict-markers
-      # catches a renamed marker, and the exit-5 check catches a suite that collected
-      # nothing at all.
+      # Two steps, because they answer two questions and a combined command answers
+      # neither well.
+      #
+      # First: did the 43 deselected tests actually run, and pass? -m mongo selects only
+      # those, so an empty selection is a failure rather than a pass - --strict-markers
+      # catches a renamed marker and the exit-5 check catches a suite that collected
+      # nothing. No coverage here: 43 tests against one adapter cannot reach the 95%
+      # bar and asking them to is how a real failure gets buried under a coverage error.
       - name: Run the MongoDB suite
         working-directory: telecom-middleware
         shell: bash
         run: |
           status=0
-          uv run pytest tests -m mongo --strict-markers \
-            --junitxml=junit-mongo.xml \
-            --cov --cov-config=coverage-mongo.toml \
-            --cov-report=term-missing --cov-report=xml:coverage-mongo.xml || status=$?
+          uv run pytest tests -m mongo --strict-markers --junitxml=junit-mongo.xml || status=$?
           if [ "$status" -eq 5 ]; then
             echo "::error::No tests matched -m mongo. The marker moved, or the suite is not being collected."
             exit 1
           fi
           exit "$status"
+
+      # Second: the coverage gate, with the adapter included. `make cov-mongo` runs the
+      # whole suite - mongo and not-mongo - against the same 95% bar the fast run holds,
+      # with repositories/mongo.py no longer omitted. This is the only run in which that
+      # file is measured at all.
+      - name: Coverage, with the MongoDB adapter included
+        working-directory: telecom-middleware
+        run: make cov-mongo
 
       - name: Mongo logs, if that failed
         if: failure()
@@ -94,7 +103,7 @@ jobs:
           name: mongo-results
           path: |
             telecom-middleware/junit-mongo.xml
-            telecom-middleware/coverage-mongo.xml
+            telecom-middleware/coverage.xml
           if-no-files-found: warn
 
       - name: Tear the replica set down

@@ -56,5 +56,12 @@ async def store(request: pytest.FixtureRequest) -> AsyncIterator[Any]:
     try:
         yield mongo
     finally:
-        await client.drop_database(database_name)
         await mongo.close()
+        # A second client for the drop. One test closes the store on purpose - twice, to
+        # prove that is harmless - and closing a store closes its client, so cleanup that
+        # reuses it fails on the one test whose whole point is that it should not.
+        cleaner: Any = AsyncIOMotorClient(uri, uuidRepresentation="standard")
+        try:
+            await cleaner.drop_database(database_name)
+        finally:
+            cleaner.close()

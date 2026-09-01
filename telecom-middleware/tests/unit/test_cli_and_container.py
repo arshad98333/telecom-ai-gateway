@@ -202,7 +202,12 @@ def test_both_stores_expose_every_repository_the_api_uses(store_factory: str) ->
                 return FakeCollection()
 
         class FakeClient:
-            def __getitem__(self, name: str) -> Any:
+            # The store asks for the database by name *with codec options*, because the
+            # zone on a timestamp depends on them. A fake that only supports __getitem__
+            # would let that requirement disappear.
+            def get_database(self, name: str, *, codec_options: Any = None) -> Any:
+                assert codec_options is not None, "the store must pin its codec options"
+                assert codec_options.tz_aware is True
                 return FakeCollection()
 
         store = MongoStore(FakeClient(), "telecom")

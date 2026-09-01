@@ -74,7 +74,7 @@ audit: ## Fail on known-vulnerable dependencies
 
 cov-mongo: ## Coverage including the MongoDB adapter; needs a real replica set
 	cd "$(CURDIR)" && $(UV) run pytest -m "mongo or not mongo" --cov \
-		--cov-config=coverage-mongo.toml --cov-report=term-missing
+		--cov-config=coverage-mongo.toml --cov-report=term-missing --cov-report=xml
 
 check: lint typecheck cov ## Exactly what CI runs
 
