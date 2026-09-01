@@ -606,11 +606,14 @@ class MongoStore:
         last event delivered rather than replaying a day or losing an hour.
         """
         tokens = self._database[STREAM_TOKENS.name]
-        stored = await tokens.find_one({"watcher": WATCHER_NAME})
-        resume_after = stored.get("token") if stored else None
-
         pipeline = [{"$match": {"operationType": "insert"}}]
         try:
+            # Reading the resume token is a database call like any other, so it belongs
+            # inside the translation. Left outside it, a driver failure here escaped as a
+            # raw pymongo error - and nothing above this module imports pymongo.
+            stored = await tokens.find_one({"watcher": WATCHER_NAME})
+            resume_after = stored.get("token") if stored else None
+
             async with self._database[OUTBOX.name].watch(
                 pipeline, resume_after=resume_after, full_document="updateLookup"
             ) as stream:

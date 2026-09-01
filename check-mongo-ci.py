@@ -5,13 +5,18 @@ The `mongo` workflow needs a real replica set, so it cannot be reproduced anywhe
 has no MongoDB. This runs exactly what that job runs and prints about forty lines instead
 of five thousand, so the result can be pasted back verbatim.
 
-    python check-mongo-ci.py
+    python check-mongo-ci.py                     # starts MongoDB with docker compose
+    python check-mongo-ci.py --uri "mongodb+srv://user:pass@cluster.mongodb.net/"
 
-Needs Docker and uv. Nothing else. It starts the compose `mongo` service, runs the two
-steps the job runs, and stops the container again.
+Docker is only needed for the first form. With --uri it runs against any replica set you
+already have - Atlas, or a MongoDB service on this machine - and never touches Docker.
 
+A standalone mongod will not do: these tests use transactions and change streams, and
+both are replica-set features. Atlas M0 is a real three-node set, so it works.
+
+    --uri URI  run against this connection string, and do not start anything
     --keep     leave MongoDB running afterwards
-    --no-up    use a replica set that is already running
+    --no-up    a replica set is already running on the default URI
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MIDDLEWARE = ROOT / "telecom-middleware"
-URI = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false"
+DEFAULT_URI = "mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false"
 FLOOR = 95.0
 
 BAR = "=" * 72
@@ -119,20 +124,32 @@ def compress(numbers: list[int]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--uri", help="connection string of a replica set to use as is")
     parser.add_argument("--keep", action="store_true", help="leave MongoDB running")
     parser.add_argument("--no-up", action="store_true", help="MongoDB is already running")
     args = parser.parse_args()
 
-    for tool in ("docker", "uv"):
-        if shutil.which(tool) is None:
-            say(f"{tool} is not on PATH.")
-            return 2
+    uri = args.uri or DEFAULT_URI
+    start_mongo = not args.no_up and not args.uri
+
+    if shutil.which("uv") is None:
+        say("uv is not on PATH. See https://docs.astral.sh/uv/getting-started/")
+        return 2
+    if start_mongo and shutil.which("docker") is None:
+        say("docker is not on PATH, so there is nothing to start.")
+        say("")
+        say("Point this at a replica set you already have instead:")
+        say('  python check-mongo-ci.py --uri "mongodb+srv://<user>:<password>@<cluster>/"')
+        say("")
+        say("Atlas works (M0 is a real three-node set). A standalone mongod does not:")
+        say("these tests use transactions and change streams, and both need a set.")
+        return 2
 
     say(BAR)
     say("MongoDB CI job, locally")
     say(BAR)
 
-    if not args.no_up:
+    if start_mongo:
         say("\n[1/4] starting the replica set")
         code, output = run(
             ["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "240", "mongo"], ROOT
@@ -143,7 +160,7 @@ def main() -> int:
         say("      up")
 
     # The job sets exactly one variable. Anything more leaks into every unit test.
-    env = {**os.environ, "TELECOM_MW_MONGODB_URI": URI}
+    env = {**os.environ, "TELECOM_MW_MONGODB_URI": uri}
 
     say("\n[2/4] installing")
     code, output = run(["uv", "sync", "--frozen", "--all-extras"], MIDDLEWARE, env)
@@ -182,7 +199,7 @@ def main() -> int:
     say(coverage_gap(MIDDLEWARE / "coverage.xml"))
     say(BAR)
 
-    if not args.keep and not args.no_up:
+    if start_mongo and not args.keep:
         run(["docker", "compose", "down", "-v"], ROOT)
         say("\nreplica set stopped")
 

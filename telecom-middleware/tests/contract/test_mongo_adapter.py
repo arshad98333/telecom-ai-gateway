@@ -104,34 +104,40 @@ async def test_the_watcher_delivers_an_event_written_to_the_outbox(
 
 
 async def test_the_watcher_records_where_it_got_to(mongo_store: MongoStore) -> None:
-    """The resume token is stored after each event.
+    """The resume token is stored, so a restart continues instead of replaying a day.
 
-    Without it a restart replays from the beginning of the oplog or from nothing at all,
-    and a supervisor either sees yesterday's queue or misses an hour of it.
+    It is written *after* the yield, which means it lands when the consumer asks for the
+    next event rather than when it receives this one. That makes delivery at least once:
+    a subscriber that stops on an event sees it again after a restart. Taking two events
+    is therefore what proves the token is written at all.
     """
     watcher = mongo_store.watch()
+    events = watcher.__aiter__()
 
-    async def consume() -> None:
-        async for _ in watcher:
-            return
-
-    task = asyncio.create_task(consume())
+    first: asyncio.Task[DomainEvent] = asyncio.create_task(events.__anext__())
+    # No callback says "the cursor is open", so this waits for it before writing.
     await asyncio.sleep(1.0)
     await mongo_store.outbox.add(_event(sequence=2))
+    assert (await asyncio.wait_for(first, timeout=20)).sequence == 2
+
+    # Asking for the next one resumes the generator past the yield, which is where the
+    # token for the first event is committed.
+    second: asyncio.Task[DomainEvent] = asyncio.create_task(events.__anext__())
+    await asyncio.sleep(0.5)
+    await mongo_store.outbox.add(_event(sequence=3))
     try:
-        await asyncio.wait_for(task, timeout=20)
+        assert (await asyncio.wait_for(second, timeout=20)).sequence == 3
     finally:
         await watcher.aclose()
 
-    # The update happens after the yield, so give the generator its next step.
-    await asyncio.sleep(0.5)
     stored = await mongo_store.database[STREAM_TOKENS.name].find_one({"watcher": WATCHER_NAME})
 
-    assert stored is not None
+    assert stored is not None, "no resume token was written"
     assert stored.get("token") is not None
 
 
 async def test_a_driver_failure_in_the_stream_is_translated(mongo_store: MongoStore) -> None:
+    """Including the resume-token read, which used to sit outside the translation."""
     await mongo_store.close()
 
     with pytest.raises(StoreUnavailableError, match="change stream failed"):
