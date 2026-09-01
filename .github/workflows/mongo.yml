@@ -80,7 +80,7 @@ jobs:
           docker compose exec -T mongo mongosh --quiet --eval \
             'JSON.stringify({set: rs.status().set, primary: rs.isMaster().primary, version: db.version()})'
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: telecom-middleware/uv.lock

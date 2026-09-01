@@ -36,6 +36,16 @@ concurrency:
 permissions:
   contents: read
 
+# setup-uv is pinned to a commit SHA with the version in a trailing comment, while every
+# other action here uses a floating major tag. That is not an inconsistency to tidy up:
+# astral-sh/setup-uv stopped publishing major and minor tags at v8.0.0, deliberately, so
+# `@v9` and `@v10` do not exist as refs and a run using one fails to resolve the action
+# before it does anything. Only a full version or a SHA works, and the SHA is what the
+# action's own release notes recommend, because a version tag can still be moved and a
+# commit cannot. Dependabot reads the trailing comment and bumps both together.
+#
+# UV_VERSION below is the version of the uv *binary* the action installs -- unrelated to
+# the action's own version, and still a valid input.
 env:
   UV_VERSION: "0.12.3"
 
@@ -71,7 +81,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -101,7 +111,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
       - name: make setup, from a clean clone
@@ -116,7 +126,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -139,7 +149,7 @@ jobs:
         with:
           fetch-depth: 0  # the secret scan reads history, not just the diff
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
 
