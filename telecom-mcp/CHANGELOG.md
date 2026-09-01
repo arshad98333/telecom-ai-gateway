@@ -6,6 +6,32 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-01
+
+### Packaging
+
+- **This package is no longer distributed on PyPI or TestPyPI.** The only artifact that
+  leaves this repository is a container image. A push to `production` (or a manual
+  dispatch) builds `ghcr.io/arshad98333/telecom-mcp-tools` and
+  `ghcr.io/arshad98333/telecom-middleware`, boots each image and checks `/readyz`,
+  `/healthz` and `/metrics` against it, then publishes multi-architecture images with an
+  SBOM and signed provenance and prints the digest to promote. Deployments pull that
+  digest; they do not rebuild, and there is nothing to `pip install`.
+- Removed the PyPI-only trove classifiers from `pyproject.toml`, the `pip install` and
+  `uvx --from` instructions from the READMEs, the PyPI publishing runbook from
+  `GUIDE.md`, and `scripts/consumer_check.sh`, whose only job was validating the
+  published package.
+
+### About this version number
+
+There are no release tags any more — images are tagged by short commit SHA and
+`production`, and nothing in CI reads or gates on `version` in `pyproject.toml`. The
+field is kept because it is not decorative: it flows through `importlib.metadata` into
+`telecom_mcp.__version__`, which is what `/healthz` and `/readyz` report, and the
+equivalent field labels the middleware's new `telecom_middleware_info` gauge. So this
+bump names the build a running container reports itself as. It does not name anything
+published anywhere.
+
 ## [1.1.1] - 2026-09-01
 
 ### Fixed
