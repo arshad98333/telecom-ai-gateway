@@ -257,7 +257,7 @@ def _build_verifier(settings: Settings, clock: Clock) -> TokenVerifier:
         return LocalVerifier(
             settings.local_verifier_secret.get_secret_value(),
             clock=clock,
-            audience=settings.jwt_audience or "telecom-mcp-tools",
+            audience=settings.jwt_audience or "https://api.telecom.example/v1",
             namespace=settings.claim_namespace,
         )
     if not (settings.jwks_url and settings.jwt_issuer and settings.jwt_audience):

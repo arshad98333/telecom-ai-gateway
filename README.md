@@ -1,228 +1,307 @@
-<div align="center">
-
 # Telecom Agentic AI Support
 
-**A voice agent that answers customer questions and raises requests on their behalf,
-and that cannot move money, change a contract, or read someone else's account.**
+A voice agent stack for telecom customer support: read account data, raise tickets, and
+route sensitive actions to human approval. The tool server enforces authorization before
+any backend call; the API holds business rules and data.
 
-Not because it was instructed not to. Because eight authorization stages, two
-independent services and a hash-chained audit trail make it impossible, and 1,023
-tests prove it on every commit.
+This repository contains three runnable components:
 
-[![ci](https://img.shields.io/github/actions/workflow/status/arshad98333/telecom-ai-gateway/ci.yml?branch=main&label=ci&logo=githubactions&logoColor=white&style=for-the-badge)](https://github.com/arshad98333/telecom-ai-gateway/actions/workflows/ci.yml)
-[![mongo](https://img.shields.io/github/actions/workflow/status/arshad98333/telecom-ai-gateway/mongo.yml?branch=main&label=mongo%20suite&logo=mongodb&logoColor=white&style=for-the-badge)](https://github.com/arshad98333/telecom-ai-gateway/actions/workflows/mongo.yml)
-[![tests](https://img.shields.io/badge/tests-1023%20passing-2ea44f?style=for-the-badge&logo=pytest&logoColor=white)](#quality-bar)
-[![coverage](https://img.shields.io/badge/coverage-%E2%89%A595%25-2ea44f?style=for-the-badge)](#quality-bar)
-[![license](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
+| Directory | Role | Default port |
+|-----------|------|--------------|
+| `telecom-mcp/` | MCP tool server (gateway) | 8080 |
+| `telecom-middleware/` | REST API and data layer | 9000 |
+| `telecom-mcp-client/` | Reference CLI client for the tool server | n/a |
 
-[![python](https://img.shields.io/badge/python-3.11%20|%203.12%20|%203.13-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![mcp](https://img.shields.io/badge/protocol-MCP-000000?style=flat-square)](https://modelcontextprotocol.io/)
-[![fastapi](https://img.shields.io/badge/api-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![mongodb](https://img.shields.io/badge/store-MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![auth0](https://img.shields.io/badge/identity-Auth0-EB5424?style=flat-square&logo=auth0&logoColor=white)](https://auth0.com/)
-[![terraform](https://img.shields.io/badge/tenant-Terraform-7B42BC?style=flat-square&logo=terraform&logoColor=white)](infra/auth0)
+Local development uses a **shared signing secret** and **built-in demo data**. Auth0 and
+external identity providers are **not required** on a laptop. Production identity is
+optional and lives under `infra/auth0/` (Terraform).
 
-[The Guide](GUIDE.md) · [Decisions](docs/decisions/) · [Contributing](CONTRIBUTING.md) · [The brief](docs/brief/)
-
-</div>
+Further detail: [GUIDE.md](GUIDE.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## What this is
+## Prerequisites
 
-Telecom support agents spend most of their day on five questions: what is on my account,
-where is my order, why is my bill this much, is there an outage, and can someone call me
-back. A voice agent can answer all five. The reason most organisations do not let one
-try is the sixth question: can I have a refund.
+| Tool | Purpose | Verify |
+|------|---------|--------|
+| [uv](https://docs.astral.sh/uv/) 0.12.3 or newer | Python and dependencies | `uv --version` |
+| Python 3.11+ | Invoked by uv | bundled with uv |
+| Docker 24+ (optional) | MongoDB and container images | `docker --version` |
+| GNU Make (optional) | Convenience targets | `make --version` |
 
-This system separates those two cases in code rather than in a prompt.
+On Windows without Make, use `scripts/dev.ps1` (PowerShell) for the same workflow.
 
-The five read questions are answered directly, scoped to the caller's own account. The
-sixth creates a request that waits for a named human, records the evidence they saw, and
-moves no money until they decide. Restricted actions such as plan changes and
-cancellations have no executable path at all in version one.
+Install uv on Windows:
 
-| For the business | |
-|---|---|
-| Risk | An agent, or anyone who compromises it, cannot reach data or actions outside the caller's own account. The control is enforced by the API, not by the model. |
-| Auditability | Every call, allowed or refused, is one record in a hash-chained log naming the identity, the decision, and which check made it. The chain is verifiable with one command. |
-| Accountability | Restricted actions carry a named approver, their evidence, and a timestamp. A supervisor may not approve their own request. |
-| Blast radius | The service account that connects the two halves can read nobody's account. Stealing it achieves nothing on its own. |
-| Independence | Identity is Auth0; storage is MongoDB; the tenant is Terraform. No component is bespoke and none is locked in. |
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
 
 ---
 
-## Run it
-
-Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker, and
-`make`. Nothing else, and uv fetches Python itself.
+## Step 1: Clone and install
 
 ```bash
 git clone https://github.com/arshad98333/telecom-ai-gateway.git
 cd telecom-ai-gateway
-make setup      # .env files, one shared secret, dependencies, a config check
-make demo       # Mongo and both services in Docker, seeded
 ```
+
+**With Make:**
 
 ```bash
-curl -s localhost:9000/readyz     # the API
-curl -s localhost:8080/readyz     # the tool server
+make setup
 ```
 
-That is the whole setup. No database to install, no Auth0 account, no credentials. The
-development defaults are a local token verifier and a seeded replica set in Docker.
-`make setup` is safe to re-run and never touches an existing `.env`.
+**With PowerShell (no Make):**
 
-**Everything else is in [`GUIDE.md`](GUIDE.md):** run it, understand it, change it, test
-it, connect a real database and a real Auth0 tenant, ship it, and what to do when you are
-paged. One file, in that order.
+```powershell
+python scripts/setup.py
+```
+
+**What this does:**
+
+1. Creates `telecom-mcp/.env` and `telecom-middleware/.env` from examples if missing.
+2. Writes one shared `LOCAL_VERIFIER_SECRET` into both files (required for tokens).
+3. Runs `scripts/local_env.py`, which sets:
+   - `IDENTITY_VERIFIER=local` (no Auth0, no JWKS)
+   - `TELECOM_MCP_BACKEND=fake` (built-in demo customers, no database)
+   - `TELECOM_MW_STORE=memory` when using the API directly
+4. Installs dependencies for `telecom-mcp`, `telecom-middleware`, and `telecom-mcp-client`.
+5. Runs `check-config` on both services.
+
+To keep existing Auth0 settings in `.env`, run: `python scripts/setup.py --keep-auth0`
+
+To reset only the local profile later: `make local` or `python scripts/local_env.py`
 
 ---
 
-## How it fits together
+## Step 2: Run on your machine (no Docker)
 
-```mermaid
-flowchart TB
-    A["Voice agent"]
-    B["telecom-mcp<br/><code>:8080</code><br/><i>the tool server</i>"]
-    C["telecom-middleware<br/><code>:9000</code><br/><i>the API</i>"]
-    D[("MongoDB<br/>replica set")]
-    E["Supervisor console"]
+You need two terminals for the full HTTP path, or one terminal if you use the fake
+backend only on the tool server.
 
-    A -->|"Bearer: the customer's token"| B
-    B -->|"the same token, forwarded unchanged<br/>+ X-Service-Authorization<br/>+ X-Correlation-Id"| C
-    C -->|"transactions and change streams"| D
-    D -.->|"change stream to SSE, live"| E
-    E -->|"approve or reject"| C
-
-    style A fill:#1f2937,stroke:#4b5563,color:#f9fafb
-    style B fill:#0b3d2e,stroke:#10b981,color:#ecfdf5
-    style C fill:#1e3a5f,stroke:#3b82f6,color:#eff6ff
-    style D fill:#14532d,stroke:#47A248,color:#f0fdf4
-    style E fill:#3b1f4e,stroke:#a855f7,color:#faf5ff
-```
-
-**`telecom-mcp`** is the gateway the voice agent calls. It decides whether this caller may
-call this tool for this customer. It holds no business rules and never touches the
-database.
-
-**`telecom-middleware`** holds the rules and the data, and is the only writer to MongoDB.
-It decides whether this identity may read or change this specific record.
-
-Three properties do the work, and each is deliberate.
-
-**One token, verified twice.** The tool server never mints a token for the customer. It
-forwards the one it was given, and the middleware verifies it again. Both hops must agree
-on issuer, audience, signing keys and claim names.
-
-**The service credential is powerless.** It travels in a separate header and proves only
-which *service* is calling. A request carrying only that credential is refused for anything
-touching customer data.
-
-**Neither layer trusts the other.** The middleware stays safe even if the tool server is
-fully compromised, which is the property that matters when the tool server is the part
-holding a language model's output.
-
----
-
-## The security model
-
-Every tool call passes eight stages, in this order, denying by default. The first failure
-ends the call, and the audit record names the stage that decided it.
-
-```
- 1  tool scope        is this a tool at all, and is it blocked in v1?
- 2  token             does it verify?
- 3  tenant            does it carry one?
- 4  CX ID             is a customer reference present where one is required?
- 5  account ownership may this identity touch *this* account?      (fails closed)
- 6  role              is the role one we know?
- 7  permission        does the role hold the scope this tool needs?
- 8  input schema      does the payload match the frozen v1 contract?
-```
-
-Tool scope runs first so an unknown or blocked tool is refused in microseconds, with no
-cryptography and no database lookup. Guardrails then run either side of the backend call:
-rate limit, size and shape, unicode safety, injection scan, business rules, action budget,
-and on the way back a size cap and a secret scan.
-
-| | |
-|---|---|
-| Refusals are indistinguishable | "Not found" answers exactly like "not yours". Telling them apart would let anyone enumerate customer identifiers. The distinction lives in the audit trail. |
-| Every outcome is recorded | Allowed and refused alike, in a hash-chained log. `telecom-mcp verify-audit` proves the chain is intact. |
-| Passcodes are never stored | Argon2id with a per-customer salt, constant-time verification, rate limited, locked out after repeated failures. Never read back, never logged, never sent to a model. |
-| Money is an integer | 64-bit minor units with the currency beside it. Never a float. |
-| Version one approves but never executes | `refund:approve` is enforced. The executing side stays dark until the finance reconciliation exists. |
-
----
-
-## Quality bar
-
-| | telecom-mcp | telecom-middleware |
-|---|---|---|
-| Tests | 649 passing, about 5 seconds | 374 passing, plus 43 against a real replica set |
-| Coverage floor | 95%, enforced in CI | 95%, enforced in CI |
-| Types | mypy strict | mypy strict |
-| Lint and format | ruff | ruff |
-| Dependencies | `uv.lock`, installed frozen, audited every push | `uv.lock`, installed frozen, audited every push |
-| Runs offline | Yes. No database, no credentials, no network | Yes, on an in-memory store |
+### Terminal 1: tool server
 
 ```bash
-make check       # lint, types, tests, coverage, both services. Exactly what CI runs.
+make run-mcp
 ```
 
-CI runs that on Python 3.11, 3.12 and 3.13, plus the end-to-end contract suite, gitleaks
-across the whole history, bandit, both container smoke tests, the 43 MongoDB tests against
-a replica set it creates and destroys, and `make setup` from a clean clone twice, so the
-quickstart above cannot quietly stop being true. It runs on a push to any branch, not just
-the long-lived ones — no pull request needed to get an answer.
+PowerShell:
 
-Pushing `production` publishes signed GHCR images for `telecom-mcp-tools` and
-`telecom-middleware`. Production should deploy those images by digest, not rebuild them.
-[How to operate that path](GUIDE.md#deploying).
+```powershell
+.\scripts\dev.ps1 run-mcp
+```
+
+Listens on `http://127.0.0.1:8080`. With `TELECOM_MCP_BACKEND=fake`, demo data is
+embedded; the middleware does not need to run.
+
+### Terminal 2 (optional): API
+
+Only needed when `TELECOM_MCP_BACKEND=http` in `telecom-mcp/.env`.
+
+```bash
+make run-middleware
+```
+
+PowerShell:
+
+```powershell
+.\scripts\dev.ps1 run-middleware
+```
+
+Listens on `http://127.0.0.1:9000`.
+
+### Terminal 3: health check
+
+```bash
+make health
+```
+
+PowerShell:
+
+```powershell
+.\scripts\dev.ps1 health
+```
+
+Both endpoints should report `"status": "healthy"`.
 
 ---
 
-## The map
+## Step 3: Mint a token and call a tool
 
-```
-GUIDE.md              everything, in the order you need it
-telecom-mcp/          the MCP tool server. Ten tools, eight live in v1
-telecom-middleware/   the API, and the only writer to MongoDB
-telecom-mcp-client/   a reference/ops MCP client for telecom-mcp: library + small CLI
-infra/auth0/          the Auth0 tenant as Terraform: API, scopes, roles, login Action
-e2e/                  both services in one process over real HTTP, nothing stubbed
-testsprite/           the external suite, run from a cloud against a deployed URL
-docs/
-  decisions/          why it is the way it is. One numbered file each, immutable
-  brief/              the specifications this was built to satisfy, unedited
+Tokens are signed locally. Auth0 is not involved in this path.
+
+```bash
+export TELECOM_MCP_ACCESS_TOKEN="$(make -s token)"
+export TELECOM_MCP_URL="http://127.0.0.1:8080"
+make client-tools
+make client-call
 ```
 
-The two services are git subtrees carrying their full history, so `git log -- telecom-mcp`
-is still the real story of that service, and each still builds, tests and releases on its
-own.
+PowerShell:
 
-## Commands
+```powershell
+cd telecom-mcp
+$env:TELECOM_MCP_ACCESS_TOKEN = uv run --env-file .env python scripts/mint_dev_token.py
+cd ..\telecom-mcp-client
+$env:TELECOM_MCP_URL = "http://127.0.0.1:8080"
+uv run telecom-mcp-client list-tools
+uv run telecom-mcp-client call get_customer_account --json '{\"cx_id\": \"CX-1234\"}'
+```
 
-| | |
-|---|---|
-| `make` | every target, one line each |
-| `make setup` | first run: env files, one shared secret, dependencies, a config check |
-| `make demo` and `make down` | the whole stack in Docker, seeded, and stopping it |
-| `make dev` | the two commands to run the services on your machine |
-| `make test`, `make test-fast`, `make test-mongo` | tests |
-| `make check` | what CI runs |
-| `make wire-auth0` | Terraform outputs into both `.env` files, correctly |
-| `make testable`, `make validate` | external testing, without wasting credits |
-| `make adr` | the next decision-record number |
+Demo customer `CX-1234` is defined in the fake backend seed (`telecom-mcp` adapters).
 
 ---
 
-<div align="center">
+## Step 4: Docker (three services, run separately)
 
-MIT licensed. Built to the standard in
-[`docs/production-engineering-guidebook.md`](docs/production-engineering-guidebook.md).
+`docker-compose.yml` defines three services. You can start them one at a time or together.
 
-Every non-obvious choice in this codebase can be traced to a written reason.
+### Service 1: MongoDB
 
-</div>
+A single-node replica set on port 27017. Required for the API when using MongoDB storage.
+
+```bash
+make docker-mongo
+# or: docker compose up -d mongo
+```
+
+PowerShell: `.\scripts\dev.ps1 docker-mongo`
+
+**What it does:** starts `mongo:7.0` with replica set `rs0` and a named volume for data.
+
+### Service 2: telecom-middleware (API)
+
+Depends on healthy MongoDB. Exposes port 9000.
+
+```bash
+make docker-middleware
+# or: docker compose up -d mongo middleware
+```
+
+PowerShell: `.\scripts\dev.ps1 docker-middleware`
+
+**What it does:** builds `telecom-middleware` image, connects to MongoDB, uses local
+verifier and audience `https://api.telecom.example/v1`.
+
+Seed demo data after the API is up:
+
+```bash
+docker compose exec -T middleware telecom-middleware seed
+```
+
+### Service 3: telecom-mcp (tool server)
+
+Depends on healthy middleware. Exposes port 8080.
+
+```bash
+make docker-mcp
+# or: docker compose up -d mongo middleware tools
+```
+
+PowerShell: `.\scripts\dev.ps1 docker-mcp`
+
+**What it does:** builds `telecom-mcp` image, calls middleware over HTTP inside the
+compose network, uses the same local verifier secret as middleware.
+
+### All three, seeded (one command)
+
+```bash
+make demo
+```
+
+PowerShell: `.\scripts\dev.ps1 demo`
+
+Stop the stack:
+
+```bash
+make down
+```
+
+PowerShell: `.\scripts\dev.ps1 down`
+
+---
+
+## Why Auth0 errors happened (and how this repo avoids them)
+
+Earlier failures (`token_invalid`, `token lifetime exceeds the permitted maximum`) came
+from `.env` files pointing at Auth0 (`IDENTITY_VERIFIER=jwks`) while using local dev
+tokens or long-lived Auth0 API settings.
+
+**Local profile (default after `make setup`):**
+
+| Setting | Value | Effect |
+|---------|-------|--------|
+| `IDENTITY_VERIFIER` | `local` | HS256 with shared secret |
+| `TELECOM_MCP_BACKEND` | `fake` | No Auth0, no empty MongoDB |
+| `JWT_AUDIENCE` | `https://api.telecom.example/v1` | Same on both services |
+
+**Production Auth0** remains available under `infra/auth0/` for deployments that need it.
+It is not part of the default laptop workflow. Use `make wire-auth0` only when Terraform
+has been applied and you intend to test against a real tenant.
+
+---
+
+## Make targets (reference)
+
+| Target | Description |
+|--------|-------------|
+| `make setup` | Install and apply local profile |
+| `make local` | Re-apply local profile to existing `.env` files |
+| `make run-mcp` | Start tool server on :8080 |
+| `make run-middleware` | Start API on :9000 |
+| `make token` | Print development bearer token |
+| `make health` | GET `/readyz` on both services |
+| `make client-tools` | List MCP tools |
+| `make client-call` | Call `get_customer_account` for CX-1234 |
+| `make docker-mongo` | Docker: MongoDB only |
+| `make docker-middleware` | Docker: MongoDB + API |
+| `make docker-mcp` | Docker: all three services |
+| `make demo` | Docker: up, seed, print URLs |
+| `make check` | Lint, types, tests (same as CI) |
+
+---
+
+## Architecture (short)
+
+```
+Client / voice agent
+        |  Bearer token (local secret in dev)
+        v
+telecom-mcp :8080          verifies token, maps tools to scopes
+        |  HTTP to middleware (or fake backend in dev)
+        v
+telecom-middleware :9000   verifies token again, enforces record access
+        v
+MongoDB (Docker) or memory / fake fixtures (laptop)
+```
+
+---
+
+## Quality and CI
+
+```bash
+make check
+```
+
+Runs lint, typecheck, tests, and coverage across services. See `.github/workflows/ci.yml`.
+
+---
+
+## Repository map
+
+```
+telecom-mcp/           MCP tool server
+telecom-middleware/    REST API
+telecom-mcp-client/    CLI client
+infra/auth0/           Optional production identity (Terraform)
+e2e/                   End-to-end contract tests
+GUIDE.md               Full operator guide
+docs/decisions/        Architecture decision records
+```
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).

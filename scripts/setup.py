@@ -34,6 +34,7 @@ SERVICES = (
     ("telecom-mcp", "TELECOM_MCP_LOCAL_VERIFIER_SECRET", "telecom-mcp"),
     ("telecom-middleware", "TELECOM_MW_LOCAL_VERIFIER_SECRET", "telecom-middleware"),
 )
+CLIENT = "telecom-mcp-client"
 
 GREEN, YELLOW, RED, OFF = "\033[32m", "\033[33m", "\033[31m", "\033[0m"
 
@@ -80,6 +81,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-install", action="store_true", help="skip `uv sync`")
+    parser.add_argument(
+        "--keep-auth0",
+        action="store_true",
+        help="do not rewrite identity settings; keep Auth0-related .env values",
+    )
     args = parser.parse_args()
 
     if shutil.which("uv") is None:
@@ -132,6 +138,27 @@ def main() -> int:
                 bad(f"{name}: uv sync failed")
                 return 1
             ok(f"{name}: installed")
+        if (ROOT / CLIENT).is_dir():
+            print(f"  .. {CLIENT}: uv sync --frozen --all-extras")
+            result = subprocess.run(  # noqa: S603
+                ["uv", "sync", "--frozen", "--all-extras"], cwd=ROOT / CLIENT, check=False
+            )
+            if result.returncode != 0:
+                bad(f"{CLIENT}: uv sync failed")
+                return 1
+            ok(f"{CLIENT}: installed")
+
+    if not args.keep_auth0:
+        print("\nLocal development profile")
+        result = subprocess.run(  # noqa: S603
+            [sys.executable, str(ROOT / "scripts" / "local_env.py")],
+            cwd=ROOT,
+            check=False,
+        )
+        if result.returncode != 0:
+            bad("local_env.py failed")
+            return 1
+        ok("local verifier and fake backend configured (no Auth0)")
 
     print("\nConfiguration")
     problems = 0
@@ -155,13 +182,16 @@ def main() -> int:
     print(f"""
 {GREEN}Ready.{OFF} Next:
 
-  make demo     everything in Docker, seeded, on http://localhost:9000
-  make dev      the two services on your machine, in two terminals
-  make test     both test suites
+  make run-mcp          tool server on http://127.0.0.1:8080  (terminal 1)
+  make run-middleware   API on http://127.0.0.1:9000          (terminal 2, optional with fake)
+  make token            print a development access token
+  make client-tools     list MCP tools using that token
 
-Both .env files use the local verifier and an in-memory or local store. Nothing here
-reaches a real cluster or a real Auth0 tenant - GUIDE.md sections 8 and 9 when you want
-those.""")
+  make demo             all three Docker services, seeded
+  make test             both test suites
+
+Local development uses a shared secret and built-in demo data. Auth0 is optional and
+documented under infra/auth0/ for production deployments.""")
     return 0
 
 
