@@ -79,7 +79,7 @@ jobs:
       UV_PYTHON: ${{ matrix.python }}
       UV_ALL_EXTRAS: "1"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
@@ -110,7 +110,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
@@ -125,7 +125,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
@@ -145,7 +145,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # the secret scan reads history, not just the diff
 
@@ -185,7 +185,7 @@ jobs:
       matrix:
         service: [telecom-mcp, telecom-middleware]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build the image and prove it answers readiness
         working-directory: ${{ matrix.service }}
         run: make docker-smoke
