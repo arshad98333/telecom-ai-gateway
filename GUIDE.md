@@ -753,27 +753,19 @@ applications, and the post-login Action that puts tenant, customer reference and
 the token. Do not click it together in the dashboard — a test
 (`test_auth0_parity.py`) will fail if what is in Auth0 drifts from what the code expects.
 
-State lives in Azure Blob Storage. Create the storage once per subscription:
+State is a file. By default it stays in `infra/auth0/`, which is gitignored, and that is
+all a single operator needs:
 
 ```bash
-az login
-az account set --subscription "<subscription id or name>"
-az group create --name rg-telecom-tfstate --location uksouth
-az storage account create --name sttelecomtfstate --resource-group rg-telecom-tfstate \
-  --sku Standard_LRS --kind StorageV2 --min-tls-version TLS1_2 \
-  --allow-blob-public-access false --https-only true
-az storage account blob-service-properties update \
-  --account-name sttelecomtfstate --resource-group rg-telecom-tfstate \
-  --enable-versioning true --enable-delete-retention true --delete-retention-days 30
-az storage container create --name tfstate --account-name sttelecomtfstate --auth-mode login
-az role assignment create --role "Storage Blob Data Contributor" \
-  --assignee "$(az ad signed-in-user show --query id -o tsv)" \
-  --scope "$(az storage account show --name sttelecomtfstate --resource-group rg-telecom-tfstate --query id -o tsv)"
+cd infra/auth0
+cp backend_local_override.tf.example backend_local_override.tf
 ```
 
-Versioning and soft delete are required, not decoration. The role assignment is the
-data-plane grant — owning the subscription is not enough — and it takes a minute or two to
-propagate, so a `403` on your first `terraform init` usually means it has not landed yet.
+If more than one person will run `terraform apply` against the same tenant, the state has
+to live somewhere both of them can lock. Any Terraform backend does that, and `envs/*.backend`
+is where the details go; the repository ships an `azurerm` block as one worked example.
+Nothing else in this system needs a cloud account, and nothing in CI touches Terraform at
+all.
 
 Then apply:
 
@@ -1134,29 +1126,37 @@ not execute from here.
 
 ### Deploying
 
-The same artifact that was tested is promoted between environments, **never rebuilt**.
-Staging deploys automatically on merge; production requires a named reviewer, verifies
-readiness *and* posture after the deploy, and returns traffic to the previous revision if
-either fails. The rollback target is captured *before* the deployment starts, because
-reading it afterwards means reading it from a system already in the state you are trying to
-escape.
+There is no cloud account in this pipeline. GitHub Actions builds, tests and publishes;
+what runs the image is your business, and the image is the artifact.
 
-Per-environment GitHub **variables** (not secrets — none of them is secret, and a value you
-cannot read back is a value you cannot debug): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
-`AZURE_SUBSCRIPTION_ID`, `RESOURCE_GROUP`, `KEY_VAULT_NAME`, `REGISTRY_NAME`,
-`REGISTRY_SERVER`, `REGISTRY_RESOURCE_ID`, `BACKEND_BASE_URL`, `JWKS_URL`, `JWT_ISSUER`,
-`JWT_AUDIENCE`, `CLAIM_NAMESPACE`, `SERVICE_TOKEN_URL`, `SERVICE_CLIENT_ID`; production also
-`APPLICATION_INSIGHTS_ID` and `ACTION_GROUP_ID`.
+A tag publishes two things at the same version: the wheel on PyPI, and a multi-arch image
+on GitHub's own registry, built from the same commit with signed provenance.
 
-The four Key Vault secrets, per environment, named exactly:
-`telecom-mcp-service-client-secret`, `telecom-mcp-backend-api-key`, `telecom-mcp-redis-url`,
-`telecom-mcp-appinsights-connection-string`. **Use different values per environment** — a
-production secret that also works in staging is a production secret with a much larger
-blast radius.
+```bash
+docker pull ghcr.io/arshad98333/telecom-mcp-tools:1.1.1
+docker run --rm -p 8080:8080 \
+  -e TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes \
+  ghcr.io/arshad98333/telecom-mcp-tools:1.1.1
+```
 
-GitHub deploys through federated OIDC and holds no credential. The federated subject must
-be `repo:arshad98333/telecom-mcp-tools:environment:<env>`, exactly; a mismatch is the `403`
-you get after `az login` works fine locally.
+Anything that can run a container can run this: a VM with `docker compose`, a managed
+container service, a Kubernetes cluster. The root `docker-compose.yml` is a working example
+of the whole system, and `telecom-mcp/infra/azure/` holds a Bicep template for one specific
+provider, unused unless you choose it.
+
+**Promote by digest, never rebuild.** The image CI built from a tag is the image that runs;
+rebuilding for production ships something no test ever saw.
+
+```bash
+docker pull ghcr.io/arshad98333/telecom-mcp-tools@sha256:<digest>
+```
+
+`ghcr.io` is public for a public repository, so pulling needs no credential. For a private
+one, `docker login ghcr.io` with a token holding `read:packages`.
+
+Configuration is environment variables ([section 16](#16-reference)), and the service
+refuses to start on a bad set rather than starting badly. Whatever runs it should read
+`/readyz` before sending traffic and `/healthz` to decide on a restart.
 
 ### Publishing `telecom-mcp-tools` to PyPI
 
@@ -1322,19 +1322,19 @@ Rolling back is not an admission of anything. It is the cheap, reversible action
 6. **Check the chain:** `telecom-mcp verify-audit <log>` must report it intact. A break means records were lost during the incident, which is its own incident.
 7. **Freeze the branch** until the cause is understood.
 
-By hand, when the deploy succeeded and the problem appeared afterwards:
+Finding the previous digest:
 
 ```bash
-az containerapp revision list -n telecom-mcp-production -g rg-telecom-production \
-  --query "[].{name:name, active:properties.active, weight:properties.trafficWeight, created:properties.createdTime}" -o table
-
-az containerapp ingress traffic set -n telecom-mcp-production -g rg-telecom-production \
-  --revision-weight <previous-revision>=100
+docker image inspect ghcr.io/arshad98333/telecom-mcp-tools:1.1.0 --format '{{index .RepoDigests 0}}'
 ```
 
-Then fix forward on `development` and promote. **Never deploy a hotfix straight to
-production** — the pipeline refuses it, because no image exists for a commit staging never
-built.
+Each release run also records its digest in the `base-image-digest` and `distribution`
+artifacts, so the answer survives even if the tag has moved. Redeploy that digest with
+whatever starts your containers, then work through the seven steps above.
+
+Then fix forward on `development` and promote. **Never build a hotfix straight for
+production**: the artifact that runs there is the one a tag built and the tests passed
+against, and there is no other way to get one.
 
 **What a rollback does not undo.** Tickets, callbacks and refund requests the bad version
 created still exist. List them from the audit trail by correlation window and hand them to
@@ -1577,11 +1577,9 @@ make validate
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `cd-production` fails at "The digest staging ran, or nothing" | The commit never went through staging | Merge it into `staging` first. **This is the check working** |
+| The release run says the tag is not on production | You tagged before promoting | Promote first, then `git tag -d v1.1.1 && git push --delete origin v1.1.1` and tag again. **This is the check working** |
 | `ci` fails on "Promotion path" | A PR from the wrong branch | Only `development → staging` and `staging → production` |
 | `ci` fails on "Not a fast-forward" | The target has commits the source does not | `git checkout development && git merge --ff-only origin/staging`, push, reopen |
-| Deployment succeeds, `verify_posture` fails | The environment variables did not arrive, or the image is old | `az containerapp show ... --query properties.template.containers[0].env` |
-| `az login` works locally, the workflow gets 403 | The federated credential subject does not match | It must be `repo:arshad98333/telecom-mcp-tools:environment:<env>`, exactly |
 | A broken version is already on PyPI | You cannot replace it, ever | **Yank** it (Manage → Releases → Options → Yank) and release a fix as a new version. Deleting frees nothing; the number stays burnt |
 | TestPyPI succeeded, PyPI failed | Almost always the trusted-publisher configuration on the real index, or the `pypi` environment not existing | Fix it and re-run; nothing was uploaded |
 
