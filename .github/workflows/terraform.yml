@@ -20,7 +20,9 @@ on:
 
 concurrency:
   group: terraform-${{ github.ref }}
-  cancel-in-progress: true
+  # false, matching ci.yml and mongo.yml: a cancelled run is reported red, which makes a
+  # superseded-but-successful run look like a failure.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -43,9 +45,9 @@ jobs:
       run:
         working-directory: infra/${{ matrix.module }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
