@@ -6,7 +6,7 @@ real one, which is the usual way an offline test suite becomes a comfortable lie
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,6 +16,18 @@ from telecom_middleware.domain.events import DomainEvent, EventType
 from telecom_middleware.domain.models import ApprovalState, CaseStatus
 from tests import builders
 from tests.builders import CUSTOMER, NOW, OTHER_TENANT, TENANT
+
+#: When a reservation is made, not merely a fixed point in time.
+#:
+#: Reservations expire, and MongoDB enforces that with a TTL index on expires_at rather
+#: than a comparison at read time. builders.NOW is a fixed date, so once the wall clock
+#: passed it every reservation these tests made was born already expired, and the TTL
+#: monitor - which sweeps roughly once a minute - deleted one partway through the run.
+#: The test that reserves the same key twice then saw its own repeat as the first
+#: reservation. Nothing here is asserting anything about the date, so anchoring to the
+#: real clock removes the dependency instead of pushing the constant forward and waiting
+#: for the same failure again.
+RESERVED_AT = datetime.now(UTC)
 
 # --- tenancy ------------------------------------------------------------------------
 
@@ -422,22 +434,24 @@ async def test_a_subscriber_can_replay_exactly_what_it_missed(store: Any) -> Non
 
 async def test_the_first_reservation_is_new_and_a_repeat_is_in_progress(store: Any) -> None:
     state, result = await store.idempotency.reserve(
-        TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
     assert (state, result) == ("new", None)
 
     state, result = await store.idempotency.reserve(
-        TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
     assert (state, result) == ("in_progress", None)
 
 
 async def test_a_completed_reservation_replays_the_original_result(store: Any) -> None:
-    await store.idempotency.reserve(TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400)
+    await store.idempotency.reserve(
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
+    )
     await store.idempotency.complete(TENANT, "tickets", "idem-1", {"ticket_id": "TCK-1"})
 
     state, result = await store.idempotency.reserve(
-        TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
 
     assert state == "completed"
@@ -447,45 +461,53 @@ async def test_a_completed_reservation_replays_the_original_result(store: Any) -
 async def test_the_same_key_with_different_input_is_an_error_not_a_silent_replay(
     store: Any,
 ) -> None:
-    await store.idempotency.reserve(TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400)
+    await store.idempotency.reserve(
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
+    )
 
     with pytest.raises(IdempotencyKeyReusedError):
         await store.idempotency.reserve(
-            TENANT, "tickets", "idem-1", "hash-b", now=NOW, ttl_s=86_400
+            TENANT, "tickets", "idem-1", "hash-b", now=RESERVED_AT, ttl_s=86_400
         )
 
 
 async def test_a_released_reservation_lets_a_genuine_retry_proceed(store: Any) -> None:
-    await store.idempotency.reserve(TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400)
+    await store.idempotency.reserve(
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
+    )
     await store.idempotency.release(TENANT, "tickets", "idem-1")
 
     state, _ = await store.idempotency.reserve(
-        TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
 
     assert state == "new"
 
 
 async def test_releasing_a_completed_key_does_not_lose_the_result(store: Any) -> None:
-    await store.idempotency.reserve(TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400)
+    await store.idempotency.reserve(
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
+    )
     await store.idempotency.complete(TENANT, "tickets", "idem-1", {"ticket_id": "TCK-1"})
     await store.idempotency.release(TENANT, "tickets", "idem-1")
 
     state, result = await store.idempotency.reserve(
-        TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
 
     assert (state, result) == ("completed", {"ticket_id": "TCK-1"})
 
 
 async def test_keys_are_namespaced_by_tenant_and_by_scope(store: Any) -> None:
-    await store.idempotency.reserve(TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400)
+    await store.idempotency.reserve(
+        TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
+    )
 
     other_tenant, _ = await store.idempotency.reserve(
-        OTHER_TENANT, "tickets", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        OTHER_TENANT, "tickets", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
     other_scope, _ = await store.idempotency.reserve(
-        TENANT, "callbacks", "idem-1", "hash-a", now=NOW, ttl_s=86_400
+        TENANT, "callbacks", "idem-1", "hash-a", now=RESERVED_AT, ttl_s=86_400
     )
 
     assert other_tenant == "new"
