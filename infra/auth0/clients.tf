@@ -48,10 +48,10 @@ resource "auth0_client" "console" {
   }
 
   refresh_token {
-    rotation_type   = "rotating"
-    expiration_type = "expiring"
-    token_lifetime  = 86400
+    rotation_type       = "rotating"
+    expiration_type     = "expiring"
+    token_lifetime      = 86400
     idle_token_lifetime = 3600
-    leeway          = 30
+    leeway              = 30
   }
 }

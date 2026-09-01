@@ -17,6 +17,7 @@ from tests.integration.conftest import CUSTOMER, Harness
 PUBLIC_ROUTES = {
     ("/healthz", "GET"),  # liveness, consulted by the orchestrator before any identity exists
     ("/readyz", "GET"),  # readiness, same
+    ("/metrics", "GET"),  # scrape endpoint; contains operational counters, not customer data
     ("/openapi.json", "GET"),
     ("/docs", "GET"),
     ("/docs/oauth2-redirect", "GET"),
@@ -91,6 +92,14 @@ async def test_no_endpoint_answers_without_a_token(
 
     assert response.status_code == 401
     assert response.json()["code"] == "unauthenticated"
+
+
+async def test_metrics_are_public_and_scrapeable(client: httpx.AsyncClient) -> None:
+    response = await client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "telecom_middleware_info" in response.text
 
 
 async def test_a_malformed_authorization_header_is_refused(client: httpx.AsyncClient) -> None:

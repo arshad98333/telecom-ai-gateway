@@ -21,17 +21,23 @@
 ## 1. What ran
 
 A unit test proves a function is right. It cannot prove the two services agree about a
-contract, and neither can prove that what you publish to PyPI works when a stranger
-installs it. Each row exists because the row above it leaves a specific question open.
+contract, and neither can prove that what you ship works when a stranger runs it. Each
+row exists because the row above it leaves a specific question open.
 
 | Layer | Suite | Runs against | Tests | Result |
 |---|---|---|---|---|
 | unit + integration | telecom-mcp-tools | In-process, fake backend | 648 | **pass** |
 | unit + integration | telecom-middleware | In-process, memory store | 373 | **pass** |
 | cross-service | e2e | Both services, real HTTP between them | 20 | **pass** |
-| packaging | `consumer_check.sh` | The built wheel in an empty venv | 10 checks | **pass** |
+| packaging † | `consumer_check.sh` | The built wheel in an empty venv | 10 checks | **pass** |
 | black-box | TestSprite (local dry run) | Both services under uvicorn, over the wire | 18 files | **pass** |
 | black-box | TestSprite (cloud) | A deployed, public URL | 18 files | **not run** |
+
+† This row records a run that happened. The layer no longer exists: distribution is
+container-only now, `consumer_check.sh` has been deleted along with the PyPI release
+path, and the equivalent check is the release workflow booting each published image and
+scraping `/readyz`, `/healthz` and `/metrics` before it pushes. Left in the table rather
+than deleted, because a report is a record of what ran, not a description of the present.
 
 The middleware suite also deselects **43 tests** marked `mongo`. They need a real MongoDB
 replica set, which this environment cannot start — skipped by design, not silently

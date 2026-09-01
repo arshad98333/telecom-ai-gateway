@@ -61,9 +61,10 @@ cd .. && docker compose up -d
 docker compose exec middleware telecom-middleware seed
 ```
 
-`GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is not here yet
-(see known gaps), `GET /docs` is the generated OpenAPI page, and `GET /api/v1/stream` is
-the live event feed.
+`GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is the Prometheus
+scrape endpoint — a build-identity gauge and nothing else so far, see known gaps —
+`GET /docs` is the generated OpenAPI page, and `GET /api/v1/stream` is the live event
+feed.
 
 ## Configuration
 
@@ -79,7 +80,7 @@ missing or malformed value prints one message naming every problem and exits 78.
 | `MONGODB_DATABASE` | no | `telecom` | |
 | `MONGODB_MAX_POOL_SIZE` | no | `100` | Connections per process. |
 | `IDENTITY_VERIFIER` | no | `local` | `local` (HS256, development) or `jwks` (Auth0). |
-| `JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE` | when `jwks` | — | From `terraform output` in `infra/auth0`. |
+| `JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE` | when `jwks` | — | Identity provider JWKS. Laptop default is `local`. |
 | `LOCAL_VERIFIER_SECRET` | when `local` | — | At least 32 bytes. |
 | `CLAIM_NAMESPACE` | no | `https://telecom.example/` | Must match the Auth0 Action. |
 | `PASSCODE_MAX_ATTEMPTS` / `PASSCODE_LOCKOUT_S` | no | `5` / `900` | What makes a four-digit secret acceptable. |
@@ -134,11 +135,9 @@ both.
 non-customer identity has no assignment for it. The deny-all default is deliberate: a
 missing assignment must never widen access.
 
-**`test_auth0_parity` fails saying the Terraform was not found** — you cloned this
-repository on its own. That test keeps the Auth0 tenant and this service in agreement,
-so it fails rather than skipping. Point it at the infrastructure repository:
-`TELECOM_INFRA_DIR=/path/to/infra/auth0 make test`. In the normal three-repository
-layout it resolves on its own.
+**`test_auth0_parity` fails saying Terraform was not found** — the Auth0 Terraform
+module is no longer in this repository. Skip that test locally, or point
+`TELECOM_INFRA_DIR` at an external copy if you still maintain one.
 
 **The live feed goes quiet** — a subscriber that falls behind is dropped on purpose.
 Reconnect with `Last-Event-ID` and the missed events replay from the outbox.
@@ -147,8 +146,11 @@ Reconnect with `Last-Event-ID` and the missed events replay from the outbox.
 
 Stated plainly, because a README describing the intended state is worse than none:
 
-- No `/metrics` endpoint yet. Logs and the audit trail are in place; the counters and
-  latency histogram from the tools package have not been ported across.
+- `/metrics` exists but is nearly empty. It serves a single static
+  `telecom_middleware_info` gauge, which is enough for a scrape to succeed and for a
+  release to confirm the endpoint is wired, and not enough to alert on. The request
+  counters and the latency histogram from the tools package have still not been ported
+  across, so nothing here measures traffic, errors or duration yet.
 - The load measurement runs in CI against one MongoDB node on a shared runner. It
   catches a regression; it is not a capacity model.
 - Retention is configured but not enforced: nothing sweeps cases or audit records at the

@@ -6,6 +6,10 @@
 make check          # lint, types, coverage — exactly what CI runs
 ```
 
+Pushing any branch runs CI on it, so you get the same answer without opening a pull
+request first. (A PR from a branch here does not re-run everything; the push run is the
+one that reports.)
+
 If that passes, CI passes, with one exception: the MongoDB suite needs a replica set
 and runs in CI only. To run it locally first:
 
@@ -14,16 +18,21 @@ make up             # a single-node replica set in Docker
 make test-mongo
 ```
 
+If the `mongo` CI job fails and you need the exact same run reproduced locally (not just
+the same tests — the same steps, the same short report), `python check-mongo-ci.py` at
+the repository root does that; `--uri` points it at an existing replica set (Atlas
+included) instead of starting one with Docker.
+
 ## Where things go
 
 | Change | Where |
 |---|---|
 | A tool the voice agent calls | `telecom-mcp/` |
 | A business rule, an endpoint, anything touching data | `telecom-middleware/` |
-| Both, or neither | the root: `docs/`, `infra/`, `e2e/`, `testsprite/` |
+| Both, or neither | the root: `docs/`, `scripts/`, `e2e/`, `testsprite/` |
 
 The two services are git subtrees with their own history, lock files and CI. Work in
-the service directory; the root Makefile only delegates.
+the service directory; the root Makefile only delegates. Human docs live in `docs/`.
 
 ## Commits
 

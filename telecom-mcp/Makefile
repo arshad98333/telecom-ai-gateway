@@ -21,13 +21,16 @@ BASE_IMAGE := $(shell awk '/^FROM /{print $$2; exit}' "$(CURDIR)/Dockerfile")
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev serve-http token test test-fast test-int lint format typecheck check cov build clean audit docker-build docker-smoke observability observability-check
+.PHONY: help install lock-check dev serve-http token test test-fast test-int lint format typecheck check cov build clean audit docker-build docker-smoke observability observability-check
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-13s %s\n", $$1, $$2}'
 
 install: ## Install everything needed to work on this, from the lock file
 	cd "$(CURDIR)" && $(UV) sync --frozen --all-extras
+
+lock-check: ## Fail if uv.lock no longer matches pyproject.toml
+	cd "$(CURDIR)" && $(UV) lock --check
 
 dev: ## Run the MCP server locally over stdio (reads .env)
 	@$(call run_with_env,telecom-mcp serve --transport stdio)
@@ -77,7 +80,7 @@ observability-check: ## Fail if the committed dashboards no longer match the cat
 	cd "$(CURDIR)" && git diff --exit-code --stat -- infra/observability \
 	  || { echo "infra/observability is stale; run 'make observability' and commit"; exit 1; }
 
-check: lint typecheck cov observability-check ## Exactly what CI runs
+check: lock-check lint typecheck cov observability-check ## Exactly what CI runs
 
 build: ## Produce the deployable artifact
 	cd "$(CURDIR)" && $(UV) build

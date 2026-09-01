@@ -1,5 +1,14 @@
 # Deploying to Azure Container Apps
 
+Operator steps: [docs/AZURE_DEPLOY.md](../../../docs/AZURE_DEPLOY.md).
+Live URLs: [docs/REFERENCE.md](../../../docs/REFERENCE.md).
+
+Staging (UAE North):
+
+- https://telecom-mcp-staging.calmfield-7654c7b3.uaenorth.azurecontainerapps.io/healthz
+- https://telecom-mcp-staging.calmfield-7654c7b3.uaenorth.azurecontainerapps.io/readyz
+- https://telecom-mcp-staging.calmfield-7654c7b3.uaenorth.azurecontainerapps.io/mcp/
+
 ```
 Arshad  ──PR──►  staging  ──build──►  image@sha256:…  ──deploy──►  STAGING
                               │                                       │

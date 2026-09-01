@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "telecom-mcp-staging": {
+      "url": "https://telecom-mcp-staging.calmfield-7654c7b3.uaenorth.azurecontainerapps.io/mcp/"
+    }
+  }
+}

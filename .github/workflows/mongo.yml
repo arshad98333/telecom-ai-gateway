@@ -11,15 +11,39 @@
 
 name: mongo
 
+# Runs on a push to any branch, like ci.yml -- but with a paths filter, which ci.yml does
+# not need and this does. This job starts a real MongoDB replica set and takes a couple
+# of minutes, and `cancel-in-progress: false` below means a superseded run is never
+# killed. Without a filter, every push to every branch -- a README fix, a workflow tweak
+# -- would queue an unskippable replica-set run behind the last one.
+#
+# The filter lists everything that can change this job's answer and nothing else: the
+# middleware, which is the only code under test; the compose file that defines the
+# replica set; and this workflow. A change anywhere else cannot make these 43 tests fail
+# differently, so running them would tell nobody anything.
+#
+# The list is written out twice because GitHub Actions does not support YAML anchors.
+# Keep the two copies identical.
+
 on:
   pull_request:
+    paths:
+      - "telecom-middleware/**"
+      - "docker-compose.yml"
+      - ".github/workflows/mongo.yml"
   push:
-    branches: [main, development]
+    branches: ['**']
+    paths:
+      - "telecom-middleware/**"
+      - "docker-compose.yml"
+      - ".github/workflows/mongo.yml"
   workflow_dispatch:
 
 concurrency:
   group: mongo-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep every run's result. The Mongo job is short enough that cancelling in-progress
+  # runs creates more noise than it saves, and GitHub reports those cancellations as red.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -27,6 +51,10 @@ permissions:
 jobs:
   replica-set:
     name: middleware against a real replica set
+    # A push to a branch here and a PR opened from it are two events for one commit.
+    # Skip the pull_request run when the PR is from this repository; a fork's PR still
+    # runs, because its push happened on the fork where this workflow did not fire.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -39,7 +67,7 @@ jobs:
       TELECOM_MW_MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # The compose file's mongo service already initiates rs0 in its healthcheck and
       # reports healthy only once a primary has been elected. Reusing it means CI and a
@@ -52,7 +80,7 @@ jobs:
           docker compose exec -T mongo mongosh --quiet --eval \
             'JSON.stringify({set: rs.status().set, primary: rs.isMaster().primary, version: db.version()})'
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: telecom-middleware/uv.lock
@@ -93,7 +121,7 @@ jobs:
         if: failure()
         run: docker compose logs --no-color mongo | tail -n 200
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mongo-results

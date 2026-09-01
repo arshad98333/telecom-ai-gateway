@@ -22,11 +22,13 @@ UV ?= uv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup demo dev seed tooling install test test-fast test-int test-mongo \
+.PHONY: help setup setup-local local demo dev seed tooling install test test-fast test-int test-mongo \
         lint format typecheck cov check audit build clean docker-build docker-smoke \
-        up down logs \
+        up down logs docker-mongo docker-middleware docker-mcp \
+        run-middleware run-mcp token health client-tools client-call \
+        console-dev console-build console-docker \
         testable testsprite-preflight testsprite-setup testsprite-create testsprite-smoke \
-        stamp validate wire-auth0 wire-auth0-activate adr
+        stamp validate adr
 
 # --- the fan-out ---------------------------------------------------------------------
 # One recipe, one meaning. $(1) is the target to run in each service.
@@ -59,18 +61,51 @@ tooling: ## Fail early if a required tool is missing
 setup: ## First run: .env files, one shared dev secret, dependencies, a config check
 	@$(PYTHON) "$(CURDIR)/scripts/setup.py"
 
+setup-local: ## Re-apply the local profile (local verifier, fake backend, no Auth0)
+	@$(PYTHON) "$(CURDIR)/scripts/local_env.py"
+
+local: setup-local ## Alias for setup-local
+
 demo: ## Everything in Docker, seeded, on http://localhost:9000
 	cd "$(CURDIR)" && docker compose up -d --wait --wait-timeout 240
 	cd "$(CURDIR)" && docker compose exec -T middleware telecom-middleware seed
 	@echo ""
 	@echo "  middleware   http://localhost:9000/readyz"
 	@echo "  tool server  http://localhost:8080/readyz"
+	@echo "  console      http://localhost:5173"
 	@echo "  stop it      make down"
 
 dev: ## Print the two commands that run the services on your machine
 	@echo "Two terminals:"
-	@echo "  make -C telecom-middleware dev     # the API,  :9000"
-	@echo "  make -C telecom-mcp serve-http     # the tools, :8080"
+	@echo "  make run-middleware    # the API,  :9000"
+	@echo "  make run-mcp           # the tools, :8080"
+	@echo ""
+	@echo "Then: make token && make client-tools"
+
+run-middleware: ## Run the API locally with reload (reads telecom-middleware/.env)
+	$(MAKE) -C "$(CURDIR)/telecom-middleware" dev
+
+run-mcp: ## Run the MCP tool server over HTTP (reads telecom-mcp/.env)
+	$(MAKE) -C "$(CURDIR)/telecom-mcp" serve-http
+
+token: ## Print a local development bearer token for MCP calls
+	@cd "$(CURDIR)/telecom-mcp" && $(UV) run --env-file .env python scripts/mint_dev_token.py
+
+health: ## Probe readiness on :9000 and :8080
+	@command -v curl >/dev/null 2>&1 || { echo "curl is required"; exit 1; }
+	@echo "middleware:"; curl -fsS "http://127.0.0.1:9000/readyz" | $(PYTHON) -m json.tool
+	@echo "mcp:"; curl -fsS "http://127.0.0.1:8080/readyz" | $(PYTHON) -m json.tool
+
+client-tools: ## List MCP tools (needs TELECOM_MCP_ACCESS_TOKEN or: eval $$(make token)) 
+	@test -n "$$TELECOM_MCP_ACCESS_TOKEN" || { echo "run: export TELECOM_MCP_ACCESS_TOKEN=$$(make -s token)"; exit 2; }
+	@cd "$(CURDIR)/telecom-mcp-client" && TELECOM_MCP_URL="$${TELECOM_MCP_URL:-http://127.0.0.1:8080}" \
+	  $(UV) run telecom-mcp-client list-tools
+
+client-call: ## Call get_customer_account for CX-1234 (override TOOL and JSON)
+	@test -n "$$TELECOM_MCP_ACCESS_TOKEN" || { echo "run: export TELECOM_MCP_ACCESS_TOKEN=$$(make -s token)"; exit 2; }
+	@cd "$(CURDIR)/telecom-mcp-client" && TELECOM_MCP_URL="$${TELECOM_MCP_URL:-http://127.0.0.1:8080}" \
+	  $(UV) run telecom-mcp-client call "$${TOOL:-get_customer_account}" \
+	  --json "$${JSON:-{\"cx_id\": \"CX-1234\"}}"
 
 seed: ## Load the demo dataset into whatever the middleware is configured to use
 	$(MAKE) -C "$(CURDIR)/telecom-middleware" seed
@@ -136,6 +171,24 @@ down: ## Stop the local stack
 logs: ## Follow the local stack's logs
 	cd "$(CURDIR)" && docker compose logs -f
 
+docker-mongo: ## Start only MongoDB (replica set on :27017)
+	cd "$(CURDIR)" && docker compose up -d mongo
+
+docker-middleware: ## Start MongoDB and the API image (:9000)
+	cd "$(CURDIR)" && docker compose up -d mongo middleware
+
+docker-mcp: ## Start MongoDB, API, and tool server (:8080)
+	cd "$(CURDIR)" && docker compose up -d mongo middleware tools
+
+console-dev: ## React ops console on http://127.0.0.1:5173 (Vite)
+	$(MAKE) -C "$(CURDIR)/telecom-console" dev
+
+console-build: ## Build the console for production
+	$(MAKE) -C "$(CURDIR)/telecom-console" build
+
+console-docker: ## Console nginx image only (needs middleware + tools running)
+	cd "$(CURDIR)" && docker compose up -d console
+
 # --- external testing ------------------------------------------------------------------
 testable: ## Bring both services up in the external-test profile and mint a token
 	cd "$(CURDIR)" && $(PYTHON) testsprite/start_testable.py
@@ -162,13 +215,6 @@ stamp: ## Resolve TARGET_URL to a literal in build/, for a TestSprite upload onl
 
 validate: ## Dry-run the TestSprite suites locally, before spending a credit
 	cd "$(CURDIR)/testsprite" && $(UV) run --project ../e2e python validate_locally.py
-
-# --- identity ---------------------------------------------------------------------------
-wire-auth0: ## Write the Terraform outputs into both .env files
-	cd "$(CURDIR)" && $(PYTHON) infra/auth0/scripts/wire_env.py
-
-wire-auth0-activate: ## ...and switch both services from the local verifier onto Auth0
-	cd "$(CURDIR)" && $(PYTHON) infra/auth0/scripts/wire_env.py --activate
 
 # --- documentation ------------------------------------------------------------------------
 adr: ## Print the command that starts the next architecture decision record

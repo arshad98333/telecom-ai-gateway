@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "telecom-mcp-tools"
-version = "1.1.1"
+version = "1.2.0"
 description = "Security-enforcing MCP tool server for telecom customer support agents: OIDC/JWKS identity, role-based scopes, per-call authorization, idempotent writes and a tamper-evident audit trail."
 readme = "README.md"
 license = "MIT"
@@ -12,18 +12,9 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.14"
 authors = [{ name = "Arshad", email = "arshad@arshadify.online" }]
 keywords = ["mcp", "model-context-protocol", "telecom", "agent", "tools", "auth0", "oidc", "rbac"]
-classifiers = [
-  "Development Status :: 5 - Production/Stable",
-  "Intended Audience :: Developers",
-  "Intended Audience :: Telecommunications Industry",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Topic :: Software Development :: Libraries :: Application Frameworks",
-  "Topic :: System :: Systems Administration :: Authentication/Directory",
-  "Typing :: Typed",
-]
+# No `classifiers` list. Trove classifiers exist for PyPI/Warehouse's own search and
+# filter UI; nothing from this repository is published to an index, so they would be
+# metadata for a shopfront that never sees it.
 dependencies = [
   "mcp>=1.9,<2",
   "pydantic>=2.8,<3",

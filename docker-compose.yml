@@ -77,8 +77,20 @@ services:
       TELECOM_MCP_BACKEND_API_KEY: local-service-credential
       TELECOM_MCP_IDENTITY_VERIFIER: local
       TELECOM_MCP_LOCAL_VERIFIER_SECRET: local-development-secret-not-for-production
-      TELECOM_MCP_JWT_AUDIENCE: telecom-mcp-tools
+      TELECOM_MCP_JWT_AUDIENCE: https://api.telecom.example/v1
+      TELECOM_MCP_CLAIM_NAMESPACE: https://telecom.example/
       TELECOM_MCP_IDEMPOTENCY_STORE: memory
+
+  console:
+    build:
+      context: ./telecom-console
+    depends_on:
+      middleware:
+        condition: service_healthy
+      tools:
+        condition: service_started
+    ports:
+      - "5173:80"
 
 volumes:
   mongo-data:

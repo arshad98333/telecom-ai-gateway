@@ -28,17 +28,6 @@ docker run --rm -p 8080:8080 \
 curl -s localhost:8080/readyz
 ```
 
-Or from PyPI, if you would rather not use Docker:
-
-```bash
-pip install telecom-mcp-tools[http]
-export TELECOM_MCP_LOCAL_VERIFIER_SECRET=a-development-secret-at-least-32-bytes
-telecom-mcp serve --transport http
-```
-
-`uvx --from 'telecom-mcp-tools[http]' telecom-mcp serve --transport http` does the same
-without installing anything permanently.
-
 `GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is the Prometheus
 exposition, and `POST /mcp/` is the MCP endpoint — note the trailing slash; without it
 the server answers `307` and most clients will not re-POST to the redirect.
@@ -200,7 +189,7 @@ no network, no database and no filesystem, so they are tested in milliseconds; a
 that does touch the outside world sits behind an interface we defined, with a real
 implementation and a fake. `../GUIDE.md` has the longer version and
 `docs/decisions/` records why each significant choice was made. `../GUIDE.md` section 12 is
-the release runbook, including the one-time PyPI trusted-publisher setup.
+the release runbook for the container images.
 
 ## The tools
 

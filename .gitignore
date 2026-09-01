@@ -15,3 +15,9 @@ uv.lock.bak
 # Kept out of the way after the subtree merge; safe to delete once the push looks right.
 .git-backups/
 .audit-requirements.txt
+
+# Local Azure CLI dumps and generated deploy state — never commit.
+azrevs.json
+azstate.json
+*.bundle
+scripts/azure-deploy.config.json
