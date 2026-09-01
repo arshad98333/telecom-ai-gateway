@@ -89,7 +89,7 @@ jobs:
       # whole restructure exists to remove.
       - name: Build and push by digest, multi-arch, untagged
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.service }}
           platforms: linux/amd64,linux/arm64
