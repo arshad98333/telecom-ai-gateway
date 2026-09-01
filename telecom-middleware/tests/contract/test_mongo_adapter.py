@@ -56,24 +56,21 @@ def _event(sequence: int = 1) -> DomainEvent:
 
 
 @pytest.fixture
-async def mongo_store(request: pytest.FixtureRequest) -> AsyncIterator[MongoStore]:
-    """A started store on its own database, dropped afterwards by a separate client."""
+async def mongo_store(
+    request: pytest.FixtureRequest, cleanup_client: Any
+) -> AsyncIterator[MongoStore]:
+    """A started store on its own database, dropped afterwards by the shared client."""
     from motor.motor_asyncio import AsyncIOMotorClient
 
-    uri = _uri()
     name = f"telecom_adapter_{abs(hash(request.node.nodeid)) % 10_000_000}"
-    client: Any = AsyncIOMotorClient(uri, uuidRepresentation="standard")
+    client: Any = AsyncIOMotorClient(_uri(), uuidRepresentation="standard")
     store = MongoStore(client, name)
     await store.start()
     try:
         yield store
     finally:
         await store.close()
-        cleaner: Any = AsyncIOMotorClient(uri, uuidRepresentation="standard")
-        try:
-            await cleaner.drop_database(name)
-        finally:
-            cleaner.close()
+        await cleanup_client.drop_database(name)
 
 
 # --- the change stream ----------------------------------------------------------------
@@ -214,14 +211,10 @@ async def test_applying_the_schema_twice_updates_the_validators_in_place(
     assert await missing_indexes(mongo_store.database) == {}
 
 
-async def test_a_database_with_no_collections_reports_every_index_as_missing() -> None:
-    from motor.motor_asyncio import AsyncIOMotorClient
-
-    client: Any = AsyncIOMotorClient(_uri(), uuidRepresentation="standard")
-    try:
-        gaps = await missing_indexes(client["telecom_adapter_absent"])
-    finally:
-        client.close()
+async def test_a_database_with_no_collections_reports_every_index_as_missing(
+    cleanup_client: Any,
+) -> None:
+    gaps = await missing_indexes(cleanup_client["telecom_adapter_absent"])
 
     assert gaps, "an empty database is missing every declared index"
     assert "customers" in gaps

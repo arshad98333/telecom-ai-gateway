@@ -55,14 +55,34 @@ def tail(output: str, lines: int = 25) -> str:
 
 
 def summarise_pytest(output: str) -> str:
-    """The counts line, plus every FAILED/ERROR name. Not the tracebacks."""
-    interesting = [
-        line
-        for line in output.splitlines()
-        if line.startswith(("FAILED", "ERROR "))
-        or re.search(r"\d+ (passed|failed|error|deselected)", line)
-    ]
-    return "\n".join(interesting[-25:]) or tail(output, 10)
+    """The counts, the distinct reasons, and one example of each. Not every traceback.
+
+    Fifty errors with the same cause are one fact. Printing the names without the
+    reasons - which this did at first - is what turned a four-minute run into no
+    information at all.
+    """
+    lines = output.splitlines()
+    counts = [line for line in lines if re.search(r"\d+ (passed|failed|error|deselected)", line)]
+    names = [line for line in lines if line.startswith(("FAILED", "ERROR "))]
+
+    # pytest prefixes assertion and exception detail with "E   "
+    reasons: dict[str, int] = {}
+    for line in lines:
+        if line.startswith("E   ") and line.strip() != "E":
+            key = re.sub(r"0x[0-9a-f]+|\d{4,}", "N", line[4:].strip())[:160]
+            reasons[key] = reasons.get(key, 0) + 1
+
+    out: list[str] = []
+    if counts:
+        out.append("      " + counts[-1].strip())
+    if reasons:
+        out.append("      distinct reasons, most common first:")
+        for reason, count in sorted(reasons.items(), key=lambda item: -item[1])[:6]:
+            out.append(f"        [{count:>3}x] {reason}")
+    if names:
+        out.append(f"      {len(names)} failing tests, first five:")
+        out.extend("        " + name.split(" - ")[0] for name in names[:5])
+    return "\n".join(out) or tail(output, 10)
 
 
 def coverage_gap(xml_path: Path) -> str:
@@ -122,6 +142,56 @@ def compress(numbers: list[int]) -> str:
     return ", ".join(out[:20])
 
 
+
+PREFLIGHT = r"""
+import os, sys, uuid
+from pymongo import MongoClient
+
+uri = os.environ["TELECOM_MW_MONGODB_URI"]
+name = "telecom_preflight_" + uuid.uuid4().hex[:8]
+ok = True
+
+def check(label, fn):
+    global ok
+    try:
+        fn()
+        print("  ok    " + label)
+    except Exception as exc:
+        ok = False
+        print("  FAIL  " + label)
+        print("          " + type(exc).__name__ + ": " + str(exc)[:220])
+
+client = MongoClient(uri, serverSelectionTimeoutMS=20000)
+check("connects and answers a ping", lambda: client.admin.command("ping"))
+
+info = {}
+def topology():
+    info.update(client.admin.command("hello"))
+    if not info.get("setName"):
+        raise RuntimeError("not a replica set; transactions and change streams need one")
+check("is a replica set", topology)
+
+db = client[name]
+check("can create a collection in a NEW database", lambda: db.create_collection("probe"))
+check("can write", lambda: db.probe.insert_one({"_id": 1}))
+
+def transaction():
+    with client.start_session() as session:
+        with session.start_transaction():
+            db.probe.insert_one({"_id": 2}, session=session)
+check("can run a transaction", transaction)
+
+def stream():
+    with db.probe.watch(max_await_time_ms=2000):
+        pass
+check("can open a change stream", stream)
+
+check("can drop the database again", lambda: client.drop_database(name))
+client.close()
+sys.exit(0 if ok else 1)
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uri", help="connection string of a replica set to use as is")
@@ -150,7 +220,7 @@ def main() -> int:
     say(BAR)
 
     if start_mongo:
-        say("\n[1/4] starting the replica set")
+        say("\n[1/5] starting the replica set")
         code, output = run(
             ["docker", "compose", "up", "-d", "--wait", "--wait-timeout", "240", "mongo"], ROOT
         )
@@ -162,14 +232,25 @@ def main() -> int:
     # The job sets exactly one variable. Anything more leaks into every unit test.
     env = {**os.environ, "TELECOM_MW_MONGODB_URI": uri}
 
-    say("\n[2/4] installing")
+    say("\n[2/5] installing")
     code, output = run(["uv", "sync", "--frozen", "--all-extras"], MIDDLEWARE, env)
     if code != 0:
         say(tail(output, 20))
         return 1
     say("      done")
 
-    say("\n[3/4] the 43 deselected tests, on their own")
+    say("\n[3/5] can this connection string do what the tests need?")
+    code, output = run(["uv", "run", "python", "-c", PREFLIGHT], MIDDLEWARE, env)
+    say(output.rstrip() or "(no output)")
+    if code != 0:
+        say("\n      The suite cannot pass until the above does. A credential scoped to one")
+        say("      database cannot create the throwaway ones each test needs: in Atlas that")
+        say("      is Database Access -> Edit -> Read and write to any database.")
+        if start_mongo and not args.keep:
+            run(["docker", "compose", "down", "-v"], ROOT)
+        return 1
+
+    say("\n[4/5] the 43 deselected tests, on their own")
     code, output = run(
         ["uv", "run", "pytest", "tests", "-m", "mongo", "--strict-markers", "-p", "no:randomly"],
         MIDDLEWARE,
@@ -179,7 +260,7 @@ def main() -> int:
     say(f"      {'PASS' if mongo_ok else 'FAIL'}")
     say(summarise_pytest(output))
 
-    say("\n[4/4] the whole suite, with the adapter measured (make cov-mongo)")
+    say("\n[5/5] the whole suite, with the adapter measured (make cov-mongo)")
     code, output = run(
         [
             "uv", "run", "pytest", "-m", "mongo or not mongo", "--cov",

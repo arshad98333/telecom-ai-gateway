@@ -20,13 +20,39 @@ def _mongo_uri() -> str | None:
     return os.environ.get(MONGO_URI_VARIABLE)
 
 
+def _new_client(uri: str) -> Any:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    return AsyncIOMotorClient(uri, uuidRepresentation="standard")
+
+
+@pytest.fixture(scope="session")
+async def cleanup_client() -> AsyncIterator[Any]:
+    """One client for dropping test databases, for the whole session.
+
+    Opening a fresh connection per test is barely noticeable against a replica set on
+    the same machine and expensive against a hosted one: every handshake crosses the
+    internet, and a free-tier cluster has a connection ceiling that a client per test
+    walks straight into.
+    """
+    uri = _mongo_uri()
+    if not uri:
+        yield None
+        return
+    client = _new_client(uri)
+    try:
+        yield client
+    finally:
+        client.close()
+
+
 @pytest.fixture(
     params=[
         pytest.param("memory", id="memory"),
         pytest.param("mongodb", id="mongodb", marks=pytest.mark.mongo),
     ]
 )
-async def store(request: pytest.FixtureRequest) -> AsyncIterator[Any]:
+async def store(request: pytest.FixtureRequest, cleanup_client: Any) -> AsyncIterator[Any]:
     """A started, empty store. Each test gets its own database or its own process state."""
     if request.param == "memory":
         from telecom_middleware.repositories.memory import MemoryStore
@@ -44,24 +70,19 @@ async def store(request: pytest.FixtureRequest) -> AsyncIterator[Any]:
             "run them with a real replica set or leave them deselected"
         )
 
-    from motor.motor_asyncio import AsyncIOMotorClient
-
     from telecom_middleware.repositories.mongo import MongoStore
 
-    # A database per test worker and test, so nothing depends on execution order.
+    # A database per test, so nothing depends on execution order.
     database_name = f"telecom_contract_{abs(hash(request.node.nodeid)) % 10_000_000}"
-    client: Any = AsyncIOMotorClient(uri, uuidRepresentation="standard")
+    client: Any = _new_client(uri)
     mongo = MongoStore(client, database_name)
     await mongo.start()
     try:
         yield mongo
     finally:
         await mongo.close()
-        # A second client for the drop. One test closes the store on purpose - twice, to
-        # prove that is harmless - and closing a store closes its client, so cleanup that
-        # reuses it fails on the one test whose whole point is that it should not.
-        cleaner: Any = AsyncIOMotorClient(uri, uuidRepresentation="standard")
-        try:
-            await cleaner.drop_database(database_name)
-        finally:
-            cleaner.close()
+        # The drop uses the shared cleanup client, not the store's own. One test closes
+        # the store on purpose - twice, to prove that is harmless - and closing a store
+        # closes its client, so cleanup that reused it would fail on the one test whose
+        # entire point is that it should not.
+        await cleanup_client.drop_database(database_name)
