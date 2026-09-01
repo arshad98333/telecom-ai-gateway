@@ -6,6 +6,22 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-01
+
+### Fixed
+
+- The container image started, found its console script, and died on
+  `ModuleNotFoundError: No module named 'telecom_mcp'`. `uv sync` installs the project
+  as an *editable* install by default, so site-packages held a `.pth` pointing at
+  `/app/src` rather than the package itself; the runtime stage copies only `/app/.venv`,
+  where `/app/src` does not exist. Both Dockerfiles now pass `--no-editable`, which puts
+  the real package in the virtual environment and makes it self-contained.
+
+  Nothing in the distribution changed: the wheel and the sdist for 1.1.0 and 1.1.1 are
+  the same code. This version exists because 1.1.0's image is broken and a published
+  version number cannot be reused.
+
+
 ## [1.1.0] - 2026-08-31
 
 ### Changed

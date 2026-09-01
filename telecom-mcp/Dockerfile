@@ -23,14 +23,20 @@ WORKDIR /app
 # Dependencies first, from the lock file only, so a code change does not invalidate
 # the dependency layer. --frozen fails if the lock file is out of date rather than
 # quietly resolving something different from what was tested.
+#
+# --no-editable is load-bearing. Without it uv installs the project as an editable
+# install: site-packages gets a .pth pointing at /app/src rather than the package
+# itself. The runtime stage copies only /app/.venv, so /app/src does not exist there,
+# and the image starts, finds its console script, and dies on
+# `ModuleNotFoundError: No module named ...` at the first import.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project --extra redis --extra http
+    uv sync --frozen --no-dev --no-editable --no-install-project --extra redis --extra http
 
 COPY src/ ./src/
 COPY README.md LICENSE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --extra redis --extra http
+    uv sync --frozen --no-dev --no-editable --extra redis --extra http
 
 # --- runtime ------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime

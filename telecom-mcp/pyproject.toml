@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "telecom-mcp-tools"
-version = "1.1.0"
+version = "1.1.1"
 description = "Security-enforcing MCP tool server for telecom customer support agents: OIDC/JWKS identity, role-based scopes, per-call authorization, idempotent writes and a tamper-evident audit trail."
 readme = "README.md"
 license = "MIT"

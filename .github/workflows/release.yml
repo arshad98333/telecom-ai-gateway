@@ -125,6 +125,10 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          # A later job failing should not cost a version number. If this artifact is
+          # already on TestPyPI from an earlier attempt at the same version, carry on:
+          # the real index is the one where a re-upload must never be possible.
+          skip-existing: true
 
   verify-from-testpypi:
     needs: [build, testpypi]
