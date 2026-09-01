@@ -1,0 +1,54 @@
+# Gitleaks configuration for telecom-ai-gateway.
+#
+# The full upstream rule set stays enabled, for every path, including tests.
+# What follows allowlists specific *values*, not files, so a real credential
+# committed anywhere in the tree or its history is still caught. Every value
+# below was opened and read before being listed here; none of them grants
+# access to anything.
+#
+# Two rules produce all of the noise. "generic-api-key" fires on any assignment
+# whose right-hand side carries enough entropy, which catches metric names and
+# the deliberately long HS256 signing keys the test suites use. "jwt" fires on
+# anything shaped like a JOSE token, which catches three example tokens.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+HS256 signing keys used by the test suites and by scripts/docker_smoke.sh. The
+verifier rejects a key shorter than 32 bytes, so every fixture key is padded
+with the literal suffix -long-enough-for-hs256. Nothing signs anything outside
+a test process or a container that is started, probed and killed in one script.
+"""
+regexes = ['''^[a-z][a-z-]*-long-enough-for-hs256$''']
+
+[[allowlists]]
+description = """
+Three example tokens. The first is the RFC 7519 example. The second has a
+signature segment that is the base64 of the word signature. The third, in
+requests.http, ends in the literal text not-a-real-signature. None verifies
+against any key this system holds.
+"""
+regexes = [
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dBjftJeZ4CVPmB92K27uhbUJU1p$''',
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJDWC0xMjM0In0\.c2lnbmF0dXJl$''',
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiJDWC0xMjM0In0\.not-a-real-signature$''',
+]
+
+[[allowlists]]
+description = """
+Metric identifiers from the KPI and SLO catalogues, declared as key= and
+kpi_key=. generic-api-key reads the assignment shape as a credential. These are
+the names that appear on dashboards, and the pattern admits only lowercase
+identifiers ending in a unit suffix.
+"""
+regexes = ['''^[a-z][a-z0-9_]*_(seconds|ratio|total|count|bytes|percent)$''']
+
+[[allowlists]]
+description = """
+Fixed identifiers used as fixtures: two hex strings that stand in for opaque
+handles in logging and guardrail tests, and one idempotency key in the sign-off
+journey test.
+"""
+regexes = ['''^(0123456789abcdef0123|abcdef0123456789|idem-journey-0001)$''']

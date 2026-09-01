@@ -38,6 +38,14 @@ jobs:
     defaults:
       run:
         working-directory: ${{ matrix.service }}
+    # make check calls plain `uv run`. Without these, uv resolves the interpreter
+    # from its own default rather than the one just synced, decides the existing
+    # environment is wrong, and rebuilds it - dropping the extras with it, so the
+    # optional tracing exporters vanish and mypy fails on py3.11 only. Setting both
+    # here makes every `uv run` in the Makefile agree with the sync above.
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+      UV_ALL_EXTRAS: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -110,10 +118,18 @@ jobs:
       - name: Dependency vulnerability audit
         run: make audit
 
+      # The pinned binary rather than gitleaks-action, so the command here is the
+      # same one a developer runs locally and the version cannot move underneath us.
+      # .gitleaks.toml keeps the upstream rule set and allowlists specific values.
       - name: Secret scan of the whole history
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.28.0"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --config .gitleaks.toml --redact --no-banner
 
       # bandit.yaml disables two noise classes with written reasons and leaves every
       # other rule live; the two remaining exceptions are marked in the code.
