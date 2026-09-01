@@ -1273,7 +1273,7 @@ pip index versions telecom-mcp-tools
 - **The built archives contain no `.env` and no private key.** Checked against the archives themselves, not against the build configuration, because the configuration is what would be wrong.
 - `twine check --strict` — the README renders on the index and the metadata is valid for it.
 - The wheel installs into an empty interpreter, imports, reports the right version, carries its seed data, exposes exactly eight tools, and `telecom-mcp check-config` runs.
-- The published image starts and validates its own configuration.
+- **The published image starts and validates its own configuration.** This is the last check and the one that has already earned its place: an image can build, push and sign perfectly and still be unable to import itself (`docs/decisions/0013`).
 
 #### If it goes wrong
 
@@ -1282,6 +1282,7 @@ pip index versions telecom-mcp-tools
 | The `pypi` job fails but TestPyPI succeeded | The artifact is identical, so it is almost always the trusted-publisher configuration on the real index or the `pypi` environment not existing. Fix it and re-run the job — **nothing was uploaded** |
 | "Trusted publisher not configured" | The owner, repository, workflow filename or environment name does not match the form. The repository is `telecom-ai-gateway` |
 | The install-from-TestPyPI step cannot find the version | The index takes a moment; the step already retries five times. If it still fails, the upload was rejected and the upload job's log says why |
+| A job **after** TestPyPI failed (the image, say) | The wheel is fine but that version number is spent: TestPyPI has it, and the tag is used. Fix the cause, bump the patch version, add a CHANGELOG entry saying why the version exists, and tag again. Do not move an existing tag |
 | The tag was refused as not on production | Promote first, delete the tag (`git tag -d v1.2.0 && git push --delete origin v1.2.0`), tag again |
 | **A broken version is already on PyPI** | You cannot replace it, ever. **Yank** it — Manage → Releases → Options → Yank — which leaves it installable by exact pin for anyone already depending on it but out of resolution, then release a fix as a new version. Deleting frees nothing: the number stays burnt |
 
