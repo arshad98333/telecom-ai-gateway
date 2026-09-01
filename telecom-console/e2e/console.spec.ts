@@ -3,9 +3,17 @@ import { test, expect } from "@playwright/test";
 test("dashboard loads and shows navigation", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Operations overview" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Guide" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Monitoring" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Auditing" })).toBeVisible();
   await expect(page.getByRole("link", { name: "AI Agents" })).toBeVisible();
+  await expect(page.getByText("/mcp/").first()).toBeVisible();
+});
+
+test("guide page shows setup steps", async ({ page }) => {
+  await page.goto("/guide");
+  await expect(page.getByRole("heading", { name: "Run everything locally" })).toBeVisible();
+  await expect(page.getByText("client-demo")).toBeVisible();
 });
 
 test("agents page shows MCP config", async ({ page }) => {

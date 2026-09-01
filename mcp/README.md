@@ -1,16 +1,10 @@
 # MCP agent configuration
 
-Copy these files to connect AI agents to the local tool server.
+## Local
 
-## Prerequisites
-
-1. Start the MCP server: `make run-mcp` or `.\scripts\dev.ps1 run-mcp`
-2. Mint a token: `make token` (PowerShell: see README)
-3. Replace `REPLACE_WITH_MAKE_TOKEN` in the JSON below
-
-## Cursor
-
-Copy `mcp/cursor-mcp.json` to your project as `.cursor/mcp.json` or merge into user MCP settings.
+1. `.\scripts\dev.ps1 run-mcp` (or `make run-mcp`)
+2. `.\scripts\dev.ps1 token`
+3. Copy [cursor-mcp.json](cursor-mcp.json) to `.cursor/mcp.json` and replace `REPLACE_WITH_MAKE_TOKEN`
 
 ```json
 {
@@ -25,36 +19,23 @@ Copy `mcp/cursor-mcp.json` to your project as `.cursor/mcp.json` or merge into u
 }
 ```
 
-Restart Cursor after saving. Open MCP settings and confirm `telecom-mcp-tools` is connected.
+Health: `http://127.0.0.1:8080/healthz` · Ready: `http://127.0.0.1:8080/readyz`
 
-## Claude Desktop
+Claude Desktop: merge [claude-desktop-config.json](claude-desktop-config.json) into the Claude config file.
 
-Merge `mcp/claude-desktop-config.json` into:
+## Staging
 
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+URLs: [docs/REFERENCE.md](../docs/REFERENCE.md)
 
-## Verify end to end
+Copy [cursor-mcp.staging.json](cursor-mcp.staging.json). Current host:
 
-```bash
-make token
-export TELECOM_MCP_ACCESS_TOKEN="$(make -s token)"
-make client-tools
-```
+- Health: https://telecom-mcp-staging.calmfield-7654c7b3.uaenorth.azurecontainerapps.io/healthz
+- MCP: https://telecom-mcp-staging.calmfield-7654c7b3.uaenorth.azurecontainerapps.io/mcp/
 
-PowerShell:
+Always POST `/mcp/` (trailing slash).
+
+## Verify
 
 ```powershell
-cd telecom-mcp-client
-$env:TELECOM_MCP_URL = "http://127.0.0.1:8080"
-$env:TELECOM_MCP_ACCESS_TOKEN = (cd ..\telecom-mcp; uv run --env-file .env python scripts/mint_dev_token.py)
-uv run telecom-mcp-client list-tools
+.\scripts\dev.ps1 client-demo
 ```
-
-## Azure
-
-When deployed, set the URL to your Container App hostname:
-
-`https://<your-mcp-app>.azurecontainerapps.io/mcp/`
-
-Use an Auth0 access token in production, or the local verifier secret only in non-production environments.

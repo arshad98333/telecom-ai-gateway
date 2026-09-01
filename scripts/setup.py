@@ -190,8 +190,8 @@ def main() -> int:
   make demo             all three Docker services, seeded
   make test             both test suites
 
-Local development uses a shared secret and built-in demo data. Auth0 is optional and
-documented under infra/auth0/ for production deployments.""")
+Local development uses a shared secret and built-in demo data.
+See docs/DEVELOPER.md and docs/REFERENCE.md.""")
     return 0
 
 

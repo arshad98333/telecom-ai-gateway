@@ -80,7 +80,7 @@ missing or malformed value prints one message naming every problem and exits 78.
 | `MONGODB_DATABASE` | no | `telecom` | |
 | `MONGODB_MAX_POOL_SIZE` | no | `100` | Connections per process. |
 | `IDENTITY_VERIFIER` | no | `local` | `local` (HS256, development) or `jwks` (Auth0). |
-| `JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE` | when `jwks` | — | From `terraform output` in `infra/auth0`. |
+| `JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE` | when `jwks` | — | Identity provider JWKS. Laptop default is `local`. |
 | `LOCAL_VERIFIER_SECRET` | when `local` | — | At least 32 bytes. |
 | `CLAIM_NAMESPACE` | no | `https://telecom.example/` | Must match the Auth0 Action. |
 | `PASSCODE_MAX_ATTEMPTS` / `PASSCODE_LOCKOUT_S` | no | `5` / `900` | What makes a four-digit secret acceptable. |
@@ -135,11 +135,9 @@ both.
 non-customer identity has no assignment for it. The deny-all default is deliberate: a
 missing assignment must never widen access.
 
-**`test_auth0_parity` fails saying the Terraform was not found** — you cloned this
-repository on its own. That test keeps the Auth0 tenant and this service in agreement,
-so it fails rather than skipping. Point it at the infrastructure repository:
-`TELECOM_INFRA_DIR=/path/to/infra/auth0 make test`. In the normal three-repository
-layout it resolves on its own.
+**`test_auth0_parity` fails saying Terraform was not found** — the Auth0 Terraform
+module is no longer in this repository. Skip that test locally, or point
+`TELECOM_INFRA_DIR` at an external copy if you still maintain one.
 
 **The live feed goes quiet** — a subscriber that falls behind is dropped on purpose.
 Reconnect with `Last-Event-ID` and the missed events replay from the outbox.

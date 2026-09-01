@@ -12,5 +12,5 @@ summary of it.
 | `project-3-conversation-design.json` | Conversation start, consent, and the core design decisions |
 | `release-and-completion.json` | Deployment and rollback ownership per project |
 
-`GUIDE.md` is how these were answered. `docs/decisions/` is why each
-non-obvious choice was made.
+How they were answered: [DEVELOPER.md](../DEVELOPER.md) and [AUDIENCE.md](../AUDIENCE.md).
+Why: [decisions/](../decisions/).

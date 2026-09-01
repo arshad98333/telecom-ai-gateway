@@ -110,7 +110,7 @@ def main() -> int:
     print("Local development profile applied.")
     print("  telecom-mcp:          local verifier, fake backend (built-in demo data)")
     print("  telecom-middleware:   local verifier, in-memory store")
-    print("  Auth0 is not used. For production identity see infra/auth0/README.md")
+    print("  Auth0 is not used. Identity on a laptop is the local verifier.")
     return 0
 
 

@@ -1,0 +1,11 @@
+{
+  "environment": "staging",
+  "location": "uaenorth",
+  "subscriptionId": "<azure-subscription-id>",
+  "sharedResourceGroup": "rg-telecom-shared",
+  "resourceGroup": "rg-telecom-staging",
+  "registryName": "<acr-name>",
+  "registryServer": "<acr-name>.azurecr.io",
+  "registryResourceId": "/subscriptions/<azure-subscription-id>/resourceGroups/rg-telecom-shared/providers/Microsoft.ContainerRegistry/registries/<acr-name>",
+  "keyVaultName": "<optional-key-vault-name>"
+}

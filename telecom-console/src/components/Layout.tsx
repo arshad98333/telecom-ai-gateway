@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Activity,
+  BookOpen,
   Bot,
   ClipboardList,
   LayoutDashboard,
@@ -9,6 +10,7 @@ import {
 } from "lucide-react";
 
 const links = [
+  { to: "/guide", label: "Guide", icon: BookOpen },
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/monitoring", label: "Monitoring", icon: Activity },
   { to: "/auditing", label: "Auditing", icon: Shield },
@@ -25,10 +27,10 @@ export function Layout() {
           animate={{ opacity: 1, x: 0 }}
           className="border-b border-slate-800/80 px-6 py-6"
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-400">
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-400">
             Telecom
           </p>
-          <h1 className="mt-1 text-xl font-bold text-white">Ops Console</h1>
+          <h1 className="mt-1 text-xl font-bold tracking-tight text-white">Ops Console</h1>
         </motion.div>
         <nav className="flex-1 space-y-1 p-4">
           {links.map((link, i) => (
@@ -39,7 +41,7 @@ export function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all ${
                   isActive
-                    ? "bg-sky-500/15 text-sky-300 shadow-inner shadow-sky-500/10"
+                    ? "bg-blue-500/15 text-blue-200 shadow-inner shadow-blue-500/10"
                     : "text-slate-400 hover:bg-slate-800/50 hover:text-white"
                 }`
               }

@@ -28,7 +28,7 @@ UV ?= uv
         run-middleware run-mcp token health client-tools client-call \
         console-dev console-build console-docker \
         testable testsprite-preflight testsprite-setup testsprite-create testsprite-smoke \
-        stamp validate wire-auth0 wire-auth0-activate adr
+        stamp validate adr
 
 # --- the fan-out ---------------------------------------------------------------------
 # One recipe, one meaning. $(1) is the target to run in each service.
@@ -215,13 +215,6 @@ stamp: ## Resolve TARGET_URL to a literal in build/, for a TestSprite upload onl
 
 validate: ## Dry-run the TestSprite suites locally, before spending a credit
 	cd "$(CURDIR)/testsprite" && $(UV) run --project ../e2e python validate_locally.py
-
-# --- identity ---------------------------------------------------------------------------
-wire-auth0: ## Write the Terraform outputs into both .env files
-	cd "$(CURDIR)" && $(PYTHON) infra/auth0/scripts/wire_env.py
-
-wire-auth0-activate: ## ...and switch both services from the local verifier onto Auth0
-	cd "$(CURDIR)" && $(PYTHON) infra/auth0/scripts/wire_env.py --activate
 
 # --- documentation ------------------------------------------------------------------------
 adr: ## Print the command that starts the next architecture decision record

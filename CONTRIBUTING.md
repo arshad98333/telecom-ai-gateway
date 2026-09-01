@@ -29,10 +29,10 @@ included) instead of starting one with Docker.
 |---|---|
 | A tool the voice agent calls | `telecom-mcp/` |
 | A business rule, an endpoint, anything touching data | `telecom-middleware/` |
-| Both, or neither | the root: `docs/`, `infra/`, `e2e/`, `testsprite/` |
+| Both, or neither | the root: `docs/`, `scripts/`, `e2e/`, `testsprite/` |
 
 The two services are git subtrees with their own history, lock files and CI. Work in
-the service directory; the root Makefile only delegates.
+the service directory; the root Makefile only delegates. Human docs live in `docs/`.
 
 ## Commits
 
