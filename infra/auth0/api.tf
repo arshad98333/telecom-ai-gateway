@@ -4,23 +4,23 @@
 
 locals {
   scopes = {
-    "account:read"      = "Read a customer's account record"
-    "service:read"      = "Read a customer's active services"
-    "order:read"        = "Read a customer's orders"
-    "billing:read"      = "Read a customer's invoices"
-    "network:read"      = "Read network status for a customer's area"
-    "ticket:read"       = "Read support tickets"
-    "ticket:write"      = "Raise a support ticket"
-    "callback:write"    = "Schedule a callback"
-    "refund:request"    = "Ask for a refund to be approved. Moves no money."
-    "refund:approve"    = "Decide a pending approval request"
-    "case:read"         = "Read voice case state"
-    "case:write"        = "Record voice case state"
-    "audit:read"        = "Read the audit trail"
-    "config:read"       = "Read security configuration"
-    "config:write"      = "Change security configuration"
-    "assignment:read"   = "Read which accounts an agent may act on"
-    "assignment:write"  = "Assign and revoke account access"
+    "account:read"     = "Read a customer's account record"
+    "service:read"     = "Read a customer's active services"
+    "order:read"       = "Read a customer's orders"
+    "billing:read"     = "Read a customer's invoices"
+    "network:read"     = "Read network status for a customer's area"
+    "ticket:read"      = "Read support tickets"
+    "ticket:write"     = "Raise a support ticket"
+    "callback:write"   = "Schedule a callback"
+    "refund:request"   = "Ask for a refund to be approved. Moves no money."
+    "refund:approve"   = "Decide a pending approval request"
+    "case:read"        = "Read voice case state"
+    "case:write"       = "Record voice case state"
+    "audit:read"       = "Read the audit trail"
+    "config:read"      = "Read security configuration"
+    "config:write"     = "Change security configuration"
+    "assignment:read"  = "Read which accounts an agent may act on"
+    "assignment:write" = "Assign and revoke account access"
   }
 }
 
@@ -32,8 +32,8 @@ resource "auth0_resource_server" "telecom_api" {
 
   # Short-lived tokens. The middleware refuses anything longer than an hour regardless,
   # so a mismatch here fails closed rather than widening the window.
-  token_lifetime         = var.token_lifetime_seconds
-  token_lifetime_for_web = var.token_lifetime_seconds
+  token_lifetime                                  = var.token_lifetime_seconds
+  token_lifetime_for_web                          = var.token_lifetime_seconds
   skip_consent_for_verifiable_first_party_clients = true
   allow_offline_access                            = false
 
