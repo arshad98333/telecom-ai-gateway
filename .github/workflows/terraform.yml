@@ -11,8 +11,11 @@ on:
     paths:
       - "infra/**"
       - ".github/workflows/terraform.yml"
+  # Any branch, like ci.yml. The paths filter already keeps this cheap: it only fires
+  # when the Terraform or this workflow changes, so widening the branches costs nothing
+  # on a branch that does not touch infra.
   push:
-    branches: [development, staging, production, main]
+    branches: ['**']
     paths:
       - "infra/**"
       - ".github/workflows/terraform.yml"
@@ -33,6 +36,10 @@ env:
 jobs:
   validate:
     name: fmt + validate (${{ matrix.module }})
+    # A push to a branch here and a PR opened from it are two events for one commit.
+    # Skip the pull_request run when the PR is from this repository; a fork's PR still
+    # runs, because its push happened on the fork where this workflow did not fire.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

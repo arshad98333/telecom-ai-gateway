@@ -6,6 +6,10 @@
 make check          # lint, types, coverage — exactly what CI runs
 ```
 
+Pushing any branch runs CI on it, so you get the same answer without opening a pull
+request first. (A PR from a branch here does not re-run everything; the push run is the
+one that reports.)
+
 If that passes, CI passes, with one exception: the MongoDB suite needs a replica set
 and runs in CI only. To run it locally first:
 

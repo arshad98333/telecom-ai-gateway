@@ -514,8 +514,9 @@ make up            # a single-node replica set in Docker
 make test-mongo
 ```
 
-CI runs them on every pull request against a replica set it creates and throws away
-(`.github/workflows/mongo.yml`). Each test gets its own database and drops it afterwards.
+CI runs them against a replica set it creates and throws away
+(`.github/workflows/mongo.yml`) — on a push to any branch, whenever the middleware, the
+compose file or that workflow changed. Each test gets its own database and drops it afterwards.
 If they are selected without `TELECOM_MW_MONGODB_URI` set, the fixture calls `pytest.fail`
 rather than skipping.
 
@@ -1116,18 +1117,24 @@ repository is public immediately — check before, not after.
 
 ### What CI runs
 
-`.github/workflows/ci.yml` at the repository root, on all four branches. **Only workflows
-in the root run** — each service keeps its own `.github/` for standalone use, and those do
+`.github/workflows/ci.yml` at the repository root, on a push to **any** branch — you do
+not need to open a pull request to find out whether your work passes. **Only workflows in
+the root run** — each service keeps its own `.github/` for standalone use, and those do
 not execute from here.
+
+A pull request opened from a branch in this repository does not run everything a second
+time: every job is guarded so the `pull_request` event is skipped when the PR comes from
+here, and the push run is the one that reports. A pull request from a fork does run,
+because its push happened on the fork, where these workflows never fired.
 
 | Job | What it does |
 |---|---|
-| `check` | each service's own `make check`, on Python 3.11 and 3.12, plus `uv lock --check` |
+| `check` | each service's own `make check`, on Python 3.11, 3.12 and 3.13, plus `uv lock --check` |
 | `quickstart` | `make setup` from a clean clone, **twice** — this is what keeps section 2 honest |
 | `contract` | the `e2e/` suite: both services in one process over real HTTP |
 | `security` | dependency audit, gitleaks over the whole history, bandit |
 | `container` | builds both images and proves each answers readiness |
-| `mongo` (separate workflow) | the 43 Mongo tests against an ephemeral replica set |
+| `mongo` (separate workflow) | the 43 Mongo tests against an ephemeral replica set. Any branch, but only when `telecom-middleware/`, `docker-compose.yml` or that workflow changes — it starts a real replica set, so it does not run for a README fix |
 | `release` (separate workflow, on `production` or manual dispatch) | publishes signed GHCR images for the MCP server and middleware |
 
 ### Deploying

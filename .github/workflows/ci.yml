@@ -6,10 +6,22 @@ name: ci
 #
 # Every job calls the same make target a developer runs, so nothing can pass locally
 # and fail here for a reason nobody can reproduce.
+#
+# Runs on a push to any branch, not just the four long-lived ones: work in progress is
+# exactly what most needs checking, and waiting for a pull request to find out means
+# finding out late. `'**'` is branches only -- a bare `push:` would also fire on tags,
+# and a tag is not a branch of work.
+#
+# Every job carries the same guard against running twice. A push to a branch in this
+# repository and a pull request opened from that branch are two events for one commit,
+# so the pull_request run is skipped when the PR comes from this repository. A fork's
+# PR still runs: its push happened on the fork, where this workflow did not fire.
 
 on:
   push:
-    branches: [development, staging, production, main]
+    branches: ['**']
+  # Kept to the long-lived branches: this is the *target* of the PR, and the only PRs
+  # this trigger still serves are ones from forks (see the guard above).
   pull_request:
     branches: [development, staging, production, main]
   workflow_dispatch:
@@ -30,6 +42,8 @@ env:
 jobs:
   check:
     name: ${{ matrix.service }} (py${{ matrix.python }})
+    # See the header: skips the duplicate run when the PR is from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -82,6 +96,8 @@ jobs:
   # The README promises three commands. This is the job that keeps that promise true.
   quickstart:
     name: quickstart
+    # See the header: skips the duplicate run when the PR is from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -95,6 +111,8 @@ jobs:
 
   contract:
     name: end to end
+    # See the header: skips the duplicate run when the PR is from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -113,6 +131,8 @@ jobs:
 
   security:
     name: security
+    # See the header: skips the duplicate run when the PR is from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -147,6 +167,8 @@ jobs:
 
   container:
     name: container (${{ matrix.service }})
+    # See the header: skips the duplicate run when the PR is from this repository.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

@@ -11,10 +11,32 @@
 
 name: mongo
 
+# Runs on a push to any branch, like ci.yml -- but with a paths filter, which ci.yml does
+# not need and this does. This job starts a real MongoDB replica set and takes a couple
+# of minutes, and `cancel-in-progress: false` below means a superseded run is never
+# killed. Without a filter, every push to every branch -- a README fix, a workflow tweak
+# -- would queue an unskippable replica-set run behind the last one.
+#
+# The filter lists everything that can change this job's answer and nothing else: the
+# middleware, which is the only code under test; the compose file that defines the
+# replica set; and this workflow. A change anywhere else cannot make these 43 tests fail
+# differently, so running them would tell nobody anything.
+#
+# The list is written out twice because GitHub Actions does not support YAML anchors.
+# Keep the two copies identical.
+
 on:
   pull_request:
+    paths:
+      - "telecom-middleware/**"
+      - "docker-compose.yml"
+      - ".github/workflows/mongo.yml"
   push:
-    branches: [main, development]
+    branches: ['**']
+    paths:
+      - "telecom-middleware/**"
+      - "docker-compose.yml"
+      - ".github/workflows/mongo.yml"
   workflow_dispatch:
 
 concurrency:
@@ -29,6 +51,10 @@ permissions:
 jobs:
   replica-set:
     name: middleware against a real replica set
+    # A push to a branch here and a PR opened from it are two events for one commit.
+    # Skip the pull_request run when the PR is from this repository; a fork's PR still
+    # runs, because its push happened on the fork where this workflow did not fire.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
 

@@ -171,10 +171,11 @@ and on the way back a size cap and a secret scan.
 make check       # lint, types, tests, coverage, both services. Exactly what CI runs.
 ```
 
-CI runs that on Python 3.11 and 3.12, plus the end-to-end contract suite, gitleaks across
-the whole history, bandit, both container smoke tests, the 43 MongoDB tests against a
-replica set it creates and destroys, and `make setup` from a clean clone twice, so the
-quickstart above cannot quietly stop being true.
+CI runs that on Python 3.11, 3.12 and 3.13, plus the end-to-end contract suite, gitleaks
+across the whole history, bandit, both container smoke tests, the 43 MongoDB tests against
+a replica set it creates and destroys, and `make setup` from a clean clone twice, so the
+quickstart above cannot quietly stop being true. It runs on a push to any branch, not just
+the long-lived ones — no pull request needed to get an answer.
 
 Pushing `production` publishes signed GHCR images for `telecom-mcp-tools` and
 `telecom-middleware`. Production should deploy those images by digest, not rebuild them.
