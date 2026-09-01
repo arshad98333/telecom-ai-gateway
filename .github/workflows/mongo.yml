@@ -67,7 +67,7 @@ jobs:
       TELECOM_MW_MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=false
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # The compose file's mongo service already initiates rs0 in its healthcheck and
       # reports healthy only once a primary has been elected. Reusing it means CI and a
