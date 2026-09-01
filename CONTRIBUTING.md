@@ -14,6 +14,11 @@ make up             # a single-node replica set in Docker
 make test-mongo
 ```
 
+If the `mongo` CI job fails and you need the exact same run reproduced locally (not just
+the same tests — the same steps, the same short report), `python check-mongo-ci.py` at
+the repository root does that; `--uri` points it at an existing replica set (Atlas
+included) instead of starting one with Docker.
+
 ## Where things go
 
 | Change | Where |
