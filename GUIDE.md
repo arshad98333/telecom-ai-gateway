@@ -141,6 +141,11 @@ data.
  MongoDB (replica set) ──change stream──► SSE, live, to every supervisor watching
 ```
 
+`telecom-mcp-client/` sits where "voice agent" sits: it is a caller of `telecom-mcp`,
+not a step in the path above. It exists so driving the tool server from a terminal or a
+script does not need a voice stack, and so the handshake, the trailing slash and the
+retry rules are solved once. See `telecom-mcp-client/README.md`.
+
 Three things about this are deliberate and worth knowing on day one.
 
 **One token, verified twice.** The tool server does not mint a token for the customer; it
@@ -164,6 +169,7 @@ tool server is compromised. (`docs/decisions/0002`.)
 |---|---|
 | `telecom-mcp/` | The tool server. Ten tools, eight of them live in v1. Port 8080. |
 | `telecom-middleware/` | The API. Port 9000, everything under `/api/v1`. |
+| `telecom-mcp-client/` | A reference/ops MCP client for `telecom-mcp`'s streamable-HTTP endpoint: a typed library plus a small CLI. Not in the request path — a caller, like a voice agent. |
 | `infra/auth0/` | The Auth0 tenant as Terraform: the API, its scopes, four roles, the login Action. |
 | `e2e/` | Both services in one process over real HTTP, nothing stubbed between them. |
 | `testsprite/` | The external suite that runs from someone else's cloud against a deployed URL. |

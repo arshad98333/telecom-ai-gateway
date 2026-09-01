@@ -188,6 +188,7 @@ Pushing `production` publishes signed GHCR images for `telecom-mcp-tools` and
 GUIDE.md              everything, in the order you need it
 telecom-mcp/          the MCP tool server. Ten tools, eight live in v1
 telecom-middleware/   the API, and the only writer to MongoDB
+telecom-mcp-client/   a reference/ops MCP client for telecom-mcp: library + small CLI
 infra/auth0/          the Auth0 tenant as Terraform: API, scopes, roles, login Action
 e2e/                  both services in one process over real HTTP, nothing stubbed
 testsprite/           the external suite, run from a cloud against a deployed URL

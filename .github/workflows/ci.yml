@@ -34,9 +34,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [telecom-mcp, telecom-middleware]
-        # Both are supported, so both are tested. Testing only one is how a supported
-        # version quietly stops working.
+        service: [telecom-mcp, telecom-middleware, telecom-mcp-client]
+        # All three are supported, so all three are tested. Testing only some is how a
+        # supported version quietly stops working.
         python: ["3.11", "3.12"]
     defaults:
       run:
@@ -138,7 +138,7 @@ jobs:
       # other rule live; the two remaining exceptions are marked in the code.
       - name: Static security analysis
         run: |
-          uv run --with bandit bandit -c bandit.yaml -r telecom-mcp/src telecom-middleware/src -q
+          uv run --with bandit bandit -c bandit.yaml -r telecom-mcp/src telecom-middleware/src telecom-mcp-client/src -q
 
   container:
     name: container (${{ matrix.service }})
