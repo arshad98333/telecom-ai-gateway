@@ -61,9 +61,10 @@ cd .. && docker compose up -d
 docker compose exec middleware telecom-middleware seed
 ```
 
-`GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is not here yet
-(see known gaps), `GET /docs` is the generated OpenAPI page, and `GET /api/v1/stream` is
-the live event feed.
+`GET /healthz` is liveness, `GET /readyz` is readiness, `GET /metrics` is the Prometheus
+scrape endpoint — a build-identity gauge and nothing else so far, see known gaps —
+`GET /docs` is the generated OpenAPI page, and `GET /api/v1/stream` is the live event
+feed.
 
 ## Configuration
 
@@ -147,8 +148,11 @@ Reconnect with `Last-Event-ID` and the missed events replay from the outbox.
 
 Stated plainly, because a README describing the intended state is worse than none:
 
-- No `/metrics` endpoint yet. Logs and the audit trail are in place; the counters and
-  latency histogram from the tools package have not been ported across.
+- `/metrics` exists but is nearly empty. It serves a single static
+  `telecom_middleware_info` gauge, which is enough for a scrape to succeed and for a
+  release to confirm the endpoint is wired, and not enough to alert on. The request
+  counters and the latency histogram from the tools package have still not been ported
+  across, so nothing here measures traffic, errors or duration yet.
 - The load measurement runs in CI against one MongoDB node on a shared runner. It
   catches a regression; it is not a capacity model.
 - Retention is configured but not enforced: nothing sweeps cases or audit records at the

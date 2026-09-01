@@ -16,9 +16,6 @@ dependencies = [
   "structlog>=24.4,<26",
 ]
 
-[project.optional-dependencies]
-cli = []
-
 [project.scripts]
 telecom-mcp-client = "telecom_mcp_client.cli:main"
 

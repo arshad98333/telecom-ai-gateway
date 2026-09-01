@@ -37,7 +37,12 @@ jobs:
         service: [telecom-mcp, telecom-middleware, telecom-mcp-client]
         # All three are supported, so all three are tested. Testing only some is how a
         # supported version quietly stops working.
-        python: ["3.11", "3.12"]
+        #
+        # The list matches what every service's `requires-python` claims (>=3.11,<3.14)
+        # rather than stopping short of it. 3.13 was claimed by all three packages and
+        # by telecom-mcp's README, and tested by none of them, which is the same gap in
+        # a different place.
+        python: ["3.11", "3.12", "3.13"]
     defaults:
       run:
         working-directory: ${{ matrix.service }}
